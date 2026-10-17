@@ -62,6 +62,15 @@
 - name: "phase: 6 polish"
   color: "fef2c0"
   description: "Sound, multi-session, autostart, packaging"
+- name: "phase: 0.7 truthful office"
+  color: "fef2c0"
+  description: "Team panel, task board, agent states"
+- name: "phase: 0.8 signals"
+  color: "fef2c0"
+  description: "Deploy, build, test and push signals, alarm, meters"
+- name: "phase: 0.9 comfort"
+  color: "fef2c0"
+  description: "Tray, diagnostics, shortcuts, CI and releases"
 
 # Status
 - name: "status: needs triage"

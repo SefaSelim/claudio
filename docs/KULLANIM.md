@@ -101,7 +101,25 @@ Toplantı odasındaki **beyaz tahta** aynı görev listesini post-it'lerle göst
 4. Alttaki kutudan **araya girebilirsin**.
 5. **Toplantıyı bitir** deyince Claude bir özet yazar. Özet, **Özeti kapat** diyene kadar ekranda kalır; **Özeti kopyala** ile panoya alabilirsin.
 
-## 9. Ofisin dili
+## 9. Sinyaller, alarm ve sayaç
+
+Ofis, ajanların çalıştırdığı komutların ne anlama geldiğini okur:
+
+| Simge | Anlamı |
+|---|---|
+| 🚀 | Deploy sürüyor (vercel, fly, kubectl, terraform, `gh release create`, tag push…) |
+| 🔨 | Derleme sürüyor (`npm run build`, `vite build`, `cargo build`, `tsc`…) |
+| 🧪 | Testler sürüyor (`npm test`, `vitest`, `pytest`, `cargo test`…) |
+| ⬆️ | `git push` |
+| ✅ / ❌ | Komut bitti: başarılı ya da başarısız. Başarısızsa sohbete kısa bir satır düşer. |
+
+**Alarm:** bir deploy başarısız olursa ya da beş dakika içinde üç araç çağrısı hata verirse ofis kırmızıya döner, arka duvardaki ışık yanar ve sağ üstte süreli bir **Alarm** düğmesi çıkar. Testler ya da derleme yeniden yeşile dönünce, başarılı bir deploy olunca, on dakika yeni hata gelmeyince ya da düğmeye tıklayınca biter; sohbete kısa bir özet yazılır.
+
+**Sayaç:** oturum rozetinin altındaki çubuk, Claude'un bağlam penceresinin ne kadar dolu olduğunu ve son beş dakikadaki dakika başına token sayısını gösterir. %70'ten sonra sarı, %90'dan sonra kırmızıdır. Üstüne gelince ayrıntı görünür.
+
+Bir ajan başka bir ajana `SendMessage` ile yazınca, mesajı götürmek için onun masasına yürür ve geri döner.
+
+## 10. Ofisin dili
 
 | Gördüğün | Anlamı |
 |---|---|
@@ -112,16 +130,31 @@ Toplantı odasındaki **beyaz tahta** aynı görev listesini post-it'lerle göst
 | Kırmızı "!" | Tur bir API hatasıyla bitti (örneğin hız sınırı). |
 | Konuşma balonu | Ajanın son söylediği. |
 
-## 10. Ayarlar
+## 11. Ayarlar, tepsi ve klavye
 
 - **Windows bildirimleri** ve **Ses**: izin, soru, uzun bir turun bitişi ve toplantı sonu.
 - **Windows ile başlat**: oturum açınca ofis kendiliğinden açılır.
 - Oturumun izin modu ayarlarda görünür; terminalde Shift+Tab ile değiştirilir.
+- **Tanılama**: Node.js, Claude Code bağlantısı, son gelen hook, açık oturum sayısı ve köprü sürümü. Bağlantı eksik ya da eskiyse **Bağlantıyı onar** düğmesi çıkar.
 
-## 11. Sorun giderme
+**Tepsi simgesi** (saatin yanında): tıklayınca ofisi gizler ya da gösterir. Sağ tık menüsünde "Her zaman üstte", "Sağ alta taşı" ve "Ofisi kapat" var. Üstüne gelince kaç isteğin seni beklediğini söyler.
+
+**Klavye** (ofis odaktayken, bir yazı kutusunda değilken):
+
+| Tuş | Ne yapar |
+|---|---|
+| Enter veya Y | Öndeki izin kartında izin ver |
+| N | Reddet |
+| T | Terminalde cevapla |
+| 1-9 | Soru kartında seçenek seç; Enter gönderir |
+| Esc | Açık paneli kapat |
+
+## 12. Sorun giderme
 
 | Sorun | Çözüm |
 |---|---|
+| Neyin eksik olduğunu bilmiyorum | Ayarlar → **Tanılama** her adımı tek tek gösterir. |
+| Ofisi gizledim, geri gelmiyor | Saatin yanındaki tepsi simgesine tıkla. |
 | Oturum listesi boş | Bir terminalde `claude` çalıştır. Liste `~/.claude/sessions` klasöründen gelir. |
 | Bağlandım ama hiçbir şey hareket etmiyor | Oturum panelinde bağlantının kurulu olduğuna bak. Claude ilk aracını kullanınca hareket başlar. |
 | Mesajım "iletilmeyi bekliyor"da kaldı | Claude uzun bir araç çalıştırıyor olabilir; o bitince iletilir. Boştaysa birkaç saniye içinde uyanır. |

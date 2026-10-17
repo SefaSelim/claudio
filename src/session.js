@@ -28,6 +28,7 @@ export const state = {
   usage: null,
   // { since, cause, failures } while the office is in alarm (a deploy failed, or three failures in five minutes)
   alarm: null,
+  diagnostics: null, // what the bridge reports about the setup (Settings → Tanılama)
   error: null,
 };
 
@@ -472,6 +473,10 @@ function onEvent(evt) {
     case 'signal':
       onSignal(evt);
       break;
+    case 'diagnostics':
+      state.diagnostics = { ...evt, at: Date.now() };
+      notify('diagnostics');
+      break;
     case 'usage': {
       if (evt.sessionId !== state.attached?.sessionId) break;
       state.usage = evt;
@@ -560,6 +565,7 @@ export const detach = () => send({ cmd: 'detach' });
 export const installHooks = () => send({ cmd: 'install_hooks' });
 export const uninstallHooks = () => send({ cmd: 'uninstall_hooks' });
 export const refreshRoster = () => send({ cmd: 'roster' });
+export const requestDiagnostics = () => send({ cmd: 'diagnostics' });
 
 /** Ask Claude to launch a subagent of this type; Claude stays in charge of the launch. */
 export function launchAgent(name, task) {

@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Tray icon: left click shows or hides the office; the menu toggles always on top, moves the office back to the corner and quits. Its tooltip says how many requests and sessions wait for you.
+- Tanılama in Settings: Node.js version, whether the Claude Code hooks are installed and current, the last hook seen, sessions found and the bridge version, with a one-click repair.
+- Keyboard on request cards while the office has focus: Enter or Y allows, N denies, T leaves it to the terminal, 1-9 pick an answer; Esc closes the open panel.
+
 ## [0.8.0] - 2026-10-18
 
 Signals, alarm and meters: the office reads what shell commands mean and how much context Claude uses.

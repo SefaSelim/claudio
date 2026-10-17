@@ -324,3 +324,13 @@ code { font-family: var(--f-mono); font-size: 11.5px; }
 .office.alarm::after { content: ""; position: absolute; inset: 0; border-radius: 18px; pointer-events: none; box-shadow: inset 0 0 40px rgba(220, 40, 30, .28); animation: alarmglow 2s ease-in-out infinite; }
 @keyframes alarmglow { 50% { box-shadow: inset 0 0 55px rgba(220, 40, 30, .4); } }
 @media (prefers-reduced-motion: reduce) { .office.alarm::after, .tag .sig.run, .alarmpill i { animation: none; } }
+
+/* 0.9: diagnostics and keyboard hints */
+.diags { display: grid; gap: 3px; padding: 6px 8px; border-radius: 10px; background: var(--surface-2); border: 1px solid var(--line); }
+.diag { display: grid; grid-template-columns: 8px auto 1fr; align-items: center; gap: 7px; font-size: 11.5px; }
+.diag i { width: 7px; height: 7px; border-radius: 50%; background: var(--s-done); }
+.diag.warn i { background: var(--s-compact); }
+.diag.bad i { background: var(--s-error); }
+.diag b { justify-self: end; font-weight: 600; color: var(--muted); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.diag.bad b { color: var(--s-error); }
+.kbd { margin-top: 6px; font-size: 10px; color: var(--muted); opacity: .75; }
