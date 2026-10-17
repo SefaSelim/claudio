@@ -20,7 +20,7 @@ import http from 'node:http';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import { listSessions, findTranscript, TranscriptTail, subagentTranscript, lastUsage, UsageTail } from './sessions.mjs';
+import { CLAUDE_DIR, listSessions, findTranscript, TranscriptTail, subagentTranscript, lastUsage, UsageTail } from './sessions.mjs';
 import { readRoster, readTasks } from './roster.mjs';
 import { classify, outcome } from './signals.mjs';
 import { hooksInstalled, hooksCurrent, installHooks, uninstallHooks } from './hooks-config.mjs';
@@ -313,9 +313,15 @@ const pick = (b) => ({
 });
 
 /** Bir hook olayını işler ve Claude Code'a dönülecek JSON'u verir. */
+// What the diagnostics panel shows about the hook pipeline.
+const hookStats = { seen: 0, lastAt: null, lastEvent: null };
+
 export async function handleHook(body, res) {
   const sessionId = body.session_id;
   const event = body.hook_event_name;
+  hookStats.seen += 1;
+  hookStats.lastAt = Date.now();
+  hookStats.lastEvent = event ?? null;
   if (body.transcript_path) knownTranscripts.set(sessionId, body.transcript_path);
   if (!isAttached(sessionId)) {
     trackWaiting(sessionId, event, body);
@@ -499,6 +505,27 @@ function send({ text, target, attachments = [], clientId }) {
   if (FAKE) fakeDeliver(attached.sessionId);
 }
 
+function diagnostics() {
+  const waiterPath = path.join(here, 'claudio-waiter.mjs');
+  const installed = FAKE || hooksInstalled();
+  return {
+    version: process.env.CLAUDIO_VERSION || null,
+    node: process.version,
+    nodeOk: Number(process.versions.node.split('.')[0]) >= 20,
+    port: BRIDGE_PORT,
+    claudeDir: CLAUDE_DIR,
+    sidecarDir: here,
+    hooksInstalled: installed,
+    hooksCurrent: installed && (FAKE || hooksCurrent({ token: TOKEN, waiterPath })),
+    hooksSeen: hookStats.seen,
+    lastHookAt: hookStats.lastAt,
+    lastHookEvent: hookStats.lastEvent,
+    sessions: (FAKE ? fakeSessions() : listSessions()).length,
+    attached: attached?.sessionId ?? null,
+    uptimeMs: Math.round(process.uptime() * 1000),
+  };
+}
+
 /** Rewrite our hooks if they belong to an older install of the office. */
 function refreshHooks() {
   if (FAKE || !hooksInstalled()) return;
@@ -533,6 +560,8 @@ async function handle(command) {
       return answer(command);
     case 'roster':
       return sendRoster();
+    case 'diagnostics':
+      return emit({ type: 'diagnostics', ...diagnostics() });
     case 'install_hooks':
       try {
         installHooks({ token: TOKEN, waiterPath: path.join(here, 'claudio-waiter.mjs') });
