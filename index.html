@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Claudio Ofis</title>
+  <link rel="stylesheet" href="/src/style.css">
+</head>
+<body>
+  <!-- Pencere tamamen şeffaf. Sadece data-hit taşıyan öğeler tıklanır, gerisi alttaki pencereye geçer. -->
+  <div class="stack" id="stack"></div>
+
+  <div class="office" id="office" data-hit>
+    <canvas id="scene"></canvas>
+    <div class="badge"><i></i>Faz 0 · iskelet</div>
+  </div>
+
+  <nav class="dock" id="dock" data-hit>
+    <div class="grp">
+      <button class="dk" data-panel="info" aria-label="Bilgi">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>
+        <span class="tip">Test paneli</span>
+      </button>
+    </div>
+    <div class="grp">
+      <button class="dk" id="quit" aria-label="Kapat">
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
+        <span class="tip">Ofisi kapat</span>
+      </button>
+    </div>
+  </nav>
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>

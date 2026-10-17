@@ -1,0 +1,135 @@
+/* Pencere düzeni (sağ alt köşeye yaslı):
+   dock: right 8, bottom 8, 44×268
+   office: right 60, bottom 8, 414×268
+   stack (paneller, sorular): right 8, bottom 286, 364 genişlik */
+:root {
+  --ink: #2a211c;
+  --bg: #fffdfa;
+  --muted: #6e625a;
+  --accent: #e0703a;
+  --accent-soft: #fbe3d4;
+  --ok: #3f9a5a;
+  --glass: rgba(255, 253, 250, .88);
+  --glass-line: rgba(120, 90, 60, .18);
+  --shadow: 0 10px 30px rgba(60, 30, 10, .22), 0 2px 6px rgba(60, 30, 10, .12);
+  --ease-out: cubic-bezier(.22, 1, .36, 1);
+  --spring: cubic-bezier(.34, 1.56, .64, 1);
+  --f-body: "Segoe UI", system-ui, sans-serif;
+}
+
+* { box-sizing: border-box; }
+html, body {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: var(--f-body);
+  font-size: 13px;
+  color: var(--ink);
+  user-select: none;
+}
+
+.office {
+  position: absolute;
+  right: 60px;
+  bottom: 8px;
+  width: 414px;
+  height: 268px;
+}
+.office canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.badge {
+  position: absolute;
+  left: 8px;
+  top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+}
+.badge i { width: 7px; height: 7px; border-radius: 50%; background: var(--ok); }
+
+.dock {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  width: 44px;
+  height: 268px;
+  border-radius: 14px;
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  box-shadow: var(--shadow);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 0;
+}
+.dock .grp { display: flex; flex-direction: column; gap: 4px; }
+.dk {
+  position: relative;
+  width: 32px;
+  height: 32px;
+  border-radius: 10px;
+  border: 0;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  color: var(--ink);
+  transition: transform .12s var(--ease-out), background .16s;
+}
+.dk:hover { background: var(--accent-soft); transform: scale(1.08); }
+.dk:active { transform: scale(.92); transition-duration: .08s; }
+.dk.on { background: var(--accent); color: #fff; }
+.dk svg { width: 17px; height: 17px; }
+.dk .tip {
+  position: absolute;
+  right: calc(100% + 10px);
+  top: 50%;
+  transform: translate(6px, -50%);
+  opacity: 0;
+  pointer-events: none;
+  white-space: nowrap;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: var(--ink);
+  color: var(--bg);
+  transition: opacity .15s, transform .2s var(--ease-out);
+}
+.dk:hover .tip { opacity: 1; transform: translate(0, -50%); }
+
+.stack {
+  position: absolute;
+  right: 8px;
+  bottom: 286px;
+  width: 364px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+}
+.card {
+  background: var(--glass);
+  border: 1px solid var(--glass-line);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 14px;
+  display: grid;
+  gap: 8px;
+  animation: pIn .34s var(--spring) both;
+}
+.card h3 { margin: 0; font-size: 15px; }
+.card p { margin: 0; color: var(--muted); line-height: 1.45; }
+.card code { font-family: "Cascadia Mono", Consolas, monospace; font-size: 12px; }
+@keyframes pIn { from { opacity: 0; transform: translateY(12px) scale(.97); } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation: none !important; transition: none !important; }
+}
