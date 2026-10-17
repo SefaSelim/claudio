@@ -33,6 +33,9 @@ const STATE_LABEL = {
 };
 const SOURCE_LABEL = { builtin: 'yerleşik', user: 'kullanıcı', project: 'proje' };
 const sourceLabel = (s) => SOURCE_LABEL[s] ?? (String(s).startsWith('plugin:') ? `eklenti · ${s.slice(7)}` : s);
+// Props over a character while a deploy, build, test run or push is running, and how it ended.
+const SIGNAL_ICON = { deploy: '🚀', build: '🔨', test: '🧪', push: '⬆️' };
+const signalIcon = (sig) => (!sig || sig.state === 'none' ? '' : sig.state === 'ok' ? '✅' : sig.state === 'fail' ? '❌' : SIGNAL_ICON[sig.kind] ?? '');
 const TASK_LABEL = { pending: 'Yapılacak', in_progress: 'Sürüyor', completed: 'Bitti' };
 const fmtTokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
 const fmtDuration = (ms) => {
@@ -94,7 +97,7 @@ export function createUI(scene) {
     if (!tag) {
       const el = document.createElement('div');
       el.className = 'tag';
-      el.innerHTML = '<div class="bubble"></div><div class="name"><i class="dot"></i><span class="nm"></span></div>';
+      el.innerHTML = '<div class="bubble"></div><div class="name"><i class="dot"></i><span class="nm"></span><span class="sig" hidden></span></div>';
       el.addEventListener('click', () => openPanel({ type: 'agent', id: agent.id }));
       tagsEl.appendChild(el);
       tag = { el, bubbleTimer: 0 };
@@ -104,6 +107,17 @@ export function createUI(scene) {
     tag.el.style.setProperty('--c', `var(--s-${agent.state})`);
     tag.el.classList.toggle('alert', agent.state === 'wait');
     tag.el.dataset.state = agent.state;
+    const sig = tag.el.querySelector('.sig');
+    const icon = signalIcon(agent.signal);
+    sig.hidden = !icon;
+    if (sig.textContent !== icon) {
+      sig.textContent = icon;
+      sig.classList.remove('pop');
+      void sig.offsetWidth;
+      sig.classList.add('pop');
+    }
+    sig.classList.toggle('run', agent.signal?.state === 'run');
+    sig.title = agent.signal ? `${agent.signal.kind}${agent.signal.target ? ` · ${agent.signal.target}` : ''}` : '';
     return tag;
   }
 
@@ -168,6 +182,42 @@ export function createUI(scene) {
       openPanel({ type });
     } else openPanel({ type });
   });
+
+  // ---------- meter and alarm ----------
+  const meter = $('meter');
+  const alarmPill = $('alarmPill');
+  const officeEl = $('office');
+  alarmPill.dataset.hit = '';
+  alarmPill.addEventListener('click', () => session.endAlarm());
+
+  function renderMeter() {
+    const u = session.state.usage;
+    meter.hidden = !u || !session.state.attached;
+    if (meter.hidden) return;
+    const level = u.percent >= 90 ? 'hot' : u.percent >= 70 ? 'warm' : '';
+    meter.className = `meterbar ${level}`;
+    meter.querySelector('.mb i').style.width = `${Math.max(2, u.percent)}%`;
+    meter.querySelector('.mt').textContent = `bağlam %${u.percent}${u.approximate ? '≈' : ''} · ${fmtTokens(u.perMinute)}/dk`;
+    meter.title = `Bağlam: ${fmtTokens(u.context)} / ${fmtTokens(u.window)} token${u.approximate ? ' (pencere tahmini)' : ''}\nSon 5 dakikada dakikada ${fmtTokens(u.perMinute)} token\nModel: ${u.model ?? 'bilinmiyor'}`;
+  }
+
+  let alarmTick = 0;
+  function renderAlarm() {
+    const a = session.state.alarm;
+    scene.setAlarm(Boolean(a));
+    officeEl.classList.toggle('alarm', Boolean(a));
+    alarmPill.hidden = !a;
+    clearInterval(alarmTick);
+    if (!a) return;
+    const draw = () => {
+      const m = Math.floor((Date.now() - a.since) / 60_000);
+      const sec = Math.floor(((Date.now() - a.since) % 60_000) / 1000);
+      alarmPill.querySelector('span').textContent = `Alarm · ${m}:${String(sec).padStart(2, '0')}`;
+      alarmPill.title = `${a.cause}\nKapatmak için tıkla.`;
+    };
+    draw();
+    alarmTick = setInterval(draw, 1000);
+  }
 
   function renderBadge() {
     const s = session.state;
@@ -899,6 +949,22 @@ export function createUI(scene) {
           renderThread();
         }
         break;
+      case 'agent_signal': {
+        const agent = session.state.agents.get(change.id);
+        if (agent) tagFor(agent);
+        break;
+      }
+      case 'visit':
+        scene.visit(change.from, change.to);
+        sayBubble(change.from, '✉ mesaj götürüyorum');
+        break;
+      case 'usage':
+        renderMeter();
+        break;
+      case 'alarm':
+        renderAlarm();
+        if (change.started) alertUser('Alarm', session.state.alarm?.cause ?? 'Bir şeyler bozuldu.');
+        break;
       case 'agent_chat':
         if (panel?.type === 'meeting') renderMeetingThread();
         if (panel?.type === 'agent' && panel.id === change.id) renderThread();
@@ -960,6 +1026,7 @@ export function createUI(scene) {
       case 'error': {
         renderDock();
         renderBadge();
+        renderMeter();
         const id = session.state.attached?.sessionId ?? null;
         const justAttached = id && id !== wasAttached;
         wasAttached = id;

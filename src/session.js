@@ -24,6 +24,10 @@ export const state = {
   // What Claude Code can use in the attached project: { cwd, agents, skills, commands }
   roster: null,
   tasks: [], // { id, subject, activeForm, status: 'pending' | 'in_progress' | 'completed', blocked }
+  // { model, context, window, approximate, percent, perMinute } from the session transcript
+  usage: null,
+  // { since, cause, failures } while the office is in alarm (a deploy failed, or three failures in five minutes)
+  alarm: null,
   error: null,
 };
 
@@ -122,6 +126,125 @@ const pendingLaunches = [];
 const now = () => new Date().toTimeString().slice(0, 5);
 const say = (id, text) => notify('say', { id, text: clip(text, 70) });
 
+// ---------- signals and alarm ----------
+// Each agent carries the signal it is running (signal.state 'run') or how the last one ended.
+const SIGNAL_SHOW_MS = 6000;
+const ALARM_WINDOW = 5 * 60_000;
+const ALARM_QUIET = 10 * 60_000;
+const failureLog = []; // { at, what }
+const redKinds = new Map(); // 'build' | 'test' -> target that last failed
+let alarmTimer = 0;
+let contextWarned = null;
+
+function setSignal(id, signal) {
+  const agent = state.agents.get(id) ?? state.agents.get('main');
+  if (!agent) return;
+  agent.signal = signal;
+  notify('agent_signal', { id: agent.id });
+  if (signal.state !== 'run') {
+    setTimeout(() => {
+      if (agent.signal === signal) {
+        agent.signal = null;
+        notify('agent_signal', { id: agent.id });
+      }
+    }, SIGNAL_SHOW_MS);
+  }
+}
+
+function systemRow(text) {
+  state.chat.push({ role: 'system', text });
+  notify('chat');
+}
+
+function startAlarm(cause) {
+  clearTimeout(alarmTimer);
+  if (!state.alarm) {
+    state.alarm = { since: Date.now(), cause, failures: failureLog.length };
+    systemRow(`🚨 Alarm: ${cause}`);
+    notify('alarm', { started: true });
+  } else {
+    state.alarm.cause = cause;
+    notify('alarm');
+  }
+  alarmTimer = setTimeout(() => endAlarm('on dakikadır yeni hata yok'), ALARM_QUIET);
+}
+
+/** Ends the alarm with a one-line postmortem. */
+export function endAlarm(why = 'elle kapatıldı') {
+  if (!state.alarm) return;
+  clearTimeout(alarmTimer);
+  const mins = Math.max(1, Math.round((Date.now() - state.alarm.since) / 60_000));
+  const failures = failureLog.filter((f) => f.at >= state.alarm.since - ALARM_WINDOW).length;
+  systemRow(`✅ Alarm bitti (${why}) · ${mins} dk · ${failures} hata · son sebep: ${state.alarm.cause}`);
+  state.alarm = null;
+  failureLog.length = 0;
+  notify('alarm');
+}
+
+function noteFailure(what) {
+  const now = Date.now();
+  failureLog.push({ at: now, what });
+  while (failureLog.length && now - failureLog[0].at > ALARM_WINDOW) failureLog.shift();
+  if (failureLog.length >= 3) startAlarm(`5 dakikada ${failureLog.length} hata · son: ${what}`);
+  else if (state.alarm) startAlarm(what);
+}
+
+const SIGNAL_NAME = { deploy: 'deploy', build: 'derleme', test: 'testler', push: 'push' };
+
+function onSignal(evt) {
+  const id = evt.agentId && state.agents.has(evt.agentId) ? evt.agentId : 'main';
+  if (evt.phase === 'start') {
+    const sig = evt.signals.find((s) => s.kind === 'deploy') ?? evt.signals[evt.signals.length - 1];
+    setSignal(id, { kind: sig.kind, state: 'run', target: sig.target });
+    return;
+  }
+  const done = evt.signals.filter((s) => s.result);
+  if (!done.length) {
+    setSignal(id, { kind: evt.signals[0].kind, state: 'none' });
+    return;
+  }
+  const failed = done.find((s) => s.result === 'fail');
+  const shown = failed ?? done.find((s) => s.kind === 'deploy') ?? done[done.length - 1];
+  setSignal(id, { kind: shown.kind, state: shown.result, target: shown.target });
+  if (evt.interrupted) return;
+  const who = state.agents.get(id)?.label ?? 'Claude';
+  for (const s of done) {
+    const target = s.target ? ` (${s.target})` : '';
+    if (s.result === 'fail') {
+      const why = s.detail || s.error || 'hata';
+      if (s.kind === 'deploy') {
+        systemRow(`❌ ${who}: deploy başarısız${target} · ${why}`);
+        startAlarm(`deploy başarısız${target}: ${why}`);
+      } else {
+        if (s.kind === 'build' || s.kind === 'test') redKinds.set(s.kind, s.target);
+        systemRow(`❌ ${who}: ${SIGNAL_NAME[s.kind]} başarısız${target} · ${why}`);
+      }
+      say(id, `${SIGNAL_NAME[s.kind]} başarısız`);
+    } else if (s.kind === 'deploy') {
+      systemRow(`🚀 ${who}: deploy tamam${target}`);
+      say(id, 'Yayında!');
+      if (state.alarm) endAlarm('deploy başarılı');
+    } else if (s.kind === 'push') {
+      if (s.toDefault) systemRow(`🎉 ${who}: ${s.target}'a push edildi`);
+      say(id, s.toDefault ? `${s.target}'a gönderdim` : 'Push ettim');
+    } else if (redKinds.has(s.kind)) {
+      redKinds.delete(s.kind);
+      systemRow(`✅ ${who}: ${SIGNAL_NAME[s.kind]} yeniden yeşil${target}`);
+      if (state.alarm && !redKinds.size) endAlarm(`${SIGNAL_NAME[s.kind]} yeşile döndü`);
+    }
+  }
+}
+
+/** SendMessage to another agent: which office agent it names, if any. */
+function messageTarget(to) {
+  const t = String(to ?? '').toLowerCase();
+  if (!t) return null;
+  for (const a of state.agents.values()) {
+    if (a.id.toLowerCase() === t || a.label.toLowerCase() === t || String(a.type).toLowerCase() === t) return a.id;
+  }
+  return null;
+}
+
 // Claude dozes off when a turn has been over for a while; any new activity wakes it.
 const DOZE_AFTER = 30_000;
 let dozeTimer = 0;
@@ -154,6 +277,10 @@ function onHook(evt) {
       agent.steps.push({ time: now(), tool, detail, status: 'run' });
       if (agent.steps.length > 40) agent.steps.shift();
       agent.tools[tool] = (agent.tools[tool] ?? 0) + 1;
+      if (tool === 'SendMessage') {
+        const to = messageTarget(evt.tool_input?.to ?? evt.tool_input?.recipient);
+        if (to && to !== id) notify('visit', { from: id, to });
+      }
       if (id === 'main') clearTimeout(dozeTimer);
       updateAgent(id, { state: TOOL_STATE[tool] ?? 'think', text: detail });
       break;
@@ -167,6 +294,8 @@ function onHook(evt) {
         step.error = clip(evt.error, 120);
       }
       agent.failures += 1;
+      // An interrupted call (Esc) is not a failure of the work.
+      if (!/interrupt/i.test(evt.error ?? '')) noteFailure(`${agent.label}: ${evt.tool_name} başarısız`);
       updateAgent(id, { state: 'think', text: `${evt.tool_name} başarısız` });
       say(id, `${evt.tool_name} başarısız oldu`);
       break;
@@ -220,6 +349,15 @@ function resetSessionView() {
   state.requests = [];
   state.roster = null;
   state.tasks = [];
+  state.usage = null;
+  if (state.alarm) {
+    state.alarm = null;
+    clearTimeout(alarmTimer);
+    notify('alarm');
+  }
+  failureLog.length = 0;
+  redKinds.clear();
+  notify('usage');
   clearTimeout(dozeTimer);
   notify('roster');
   notify('tasks');
@@ -331,6 +469,19 @@ function onEvent(evt) {
       state.tasks = evt.tasks ?? [];
       notify('tasks');
       break;
+    case 'signal':
+      onSignal(evt);
+      break;
+    case 'usage': {
+      if (evt.sessionId !== state.attached?.sessionId) break;
+      state.usage = evt;
+      notify('usage');
+      if (evt.percent >= 85 && contextWarned !== evt.sessionId) {
+        contextWarned = evt.sessionId;
+        systemRow(`Claude'un masası doluyor: bağlam %${evt.percent}. Claude Code yakında konuşmayı özetleyebilir.`);
+      }
+      break;
+    }
     case 'agent_stats':
       updateAgent(evt.agentId, { model: evt.model ?? null, tokens: evt.tokens ?? null });
       break;

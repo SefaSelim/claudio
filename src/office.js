@@ -328,7 +328,33 @@ export function buildOffice(scene) {
 
   const skies = { night: skyTexture('night'), day: skyTexture('day') };
 
-  function setMood(night) {
+  // Alarm beacon on top of the back wall; dark until something breaks.
+  const beacon = new THREE.Group();
+  beacon.position.set(0.3, 2.0, -D / 2 - 0.02);
+  scene.add(beacon);
+  cyl(beacon, 0.11, 0.13, 0.06, 14, C.dark, 0, 0, 0);
+  const domeMat = new THREE.MeshStandardMaterial({ color: 0x7a2a24, emissive: 0x000000, roughness: 0.35, transparent: true, opacity: 0.92 });
+  const dome = mesh(beacon, new THREE.SphereGeometry(0.1, 16, 10, 0, Math.PI * 2, 0, Math.PI / 2), domeMat, 0, 0.06, 0);
+  dome.castShadow = false;
+  const alarmLight = new THREE.PointLight(0xff3b2f, 0, 9, 1.6);
+  alarmLight.position.set(0.3, 1.8, -2.6);
+  scene.add(alarmLight);
+  let alarm = false;
+  let night = true;
+
+  function setAlarm(on) {
+    alarm = on;
+    hemi.color.set(on ? 0xffb0a4 : 0xffe7cc);
+    domeMat.emissive.set(on ? 0xff2a1a : 0x000000);
+    if (!on) { alarmLight.intensity = 0; dome.scale.setScalar(1); }
+  }
+
+  function setMood(isNight) {
+    night = isNight;
+    applyMood();
+  }
+
+  function applyMood() {
     hemi.intensity = night ? 1.2 : 2.8;
     sun.intensity = night ? 1.7 : 3.2;
     sun.color.set(night ? 0xffcf9a : 0xfff4e6);
@@ -341,8 +367,14 @@ export function buildOffice(scene) {
   function tick(t, k) {
     bulbs.forEach((b, i) => b.scale.setScalar(1 + Math.sin(t * 2 + i * 1.7) * 0.18 * k));
     board.tick(t, k);
+    if (alarm) {
+      // A slow pulse, well under three flashes a second.
+      const pulse = 0.5 + 0.5 * Math.sin(t * 4);
+      alarmLight.intensity = (night ? 6 : 10) * (k ? pulse : 0.6);
+      domeMat.emissiveIntensity = 0.6 + pulse * 1.4 * (k || 0.3);
+    }
   }
 
   setMood(true);
-  return { setMood, tick, spots: SPOTS, door: DOOR, setTasks: board.setTasks, board: board.group };
+  return { setMood, setAlarm, tick, spots: SPOTS, door: DOOR, setTasks: board.setTasks, board: board.group };
 }
