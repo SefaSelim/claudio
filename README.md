@@ -7,21 +7,26 @@ Tasarım ve yol haritası: https://claude.ai/artifact/G8Fc75oiVbtYyUCbwLJZLQ
 ## Durum
 
 - Faz 0: şeffaf, çerçevesiz, hep üstte, görev çubuğunda görünmeyen pencere. Sadece ofis, yan çubuk ve açık paneller tıklanır; geri kalan her yere tıklama alttaki pencereye geçer. Tutamaçla taşınır, konum hatırlanır.
-- Faz 1: ofis, Claude Agent SDK ile kendi Claude oturumunu açar. Alt ajanlar sahnede belirip kaybolur, araç kullanımı animasyona ve baloncuklara dönüşür. Sohbet, izin kartları ve AskUserQuestion soru kartları ofisin üstünde açılır; izin modu ayarlardan değişir.
+- Faz 1: ofis, makinedeki herhangi bir açık Claude Code oturumuna bağlanır (API anahtarı gerekmez). Alt ajanlar sahnede belirip kaybolur, araç kullanımı animasyona ve baloncuklara dönüşür. Sohbet, izin kartları ve AskUserQuestion soru kartları ofisin üstünde açılır; ofisten yazılan mesajlar oturuma iletilir.
 
-## API anahtarı
+## Claude Code'a bağlanma
 
-Anthropic, Agent SDK ile yapılan uygulamaların claude.ai girişini kullanmasına izin vermiyor; ofis bir API anahtarıyla çalışır. Claude Console'dan anahtar alıp:
+İlk açılışta yan çubuktaki **Oturum** panelinden **Bağlantıyı kur**'a bas. Ofis `~/.claude/settings.json` dosyasını `settings.json.claudio-backup` olarak yedekler ve kendi hook'larını ekler. Bu hook'lar bütün oturumlarda çalışır, açık oturumlar da yeniden başlatmadan alır; ofis kapalıyken hiçbir şeyi engellemez. **Kaldır** yalnızca ofisin hook'larını siler.
 
-```powershell
-setx ANTHROPIC_API_KEY "anahtar"
-```
+Sonra listeden bir oturum seç:
 
-Sonra terminali kapatıp yeniden açın. Bedrock, Vertex ve Foundry ortam değişkenleri de desteklenir.
+- **İzleme:** oturum listesi `~/.claude/sessions`'tan, sohbet oturumun kayıt dosyasından, ajan ve araç durumları hook'lardan gelir.
+- **İzin ve sorular:** `PermissionRequest` ve `AskUserQuestion` ofisten cevaplanabilir. "Terminalde cevapla" kararı terminale bırakır; ayarlardan tamamen kapatılabilir.
+- **Mesajlar:** Claude Code'a dışarıdan kullanıcı mesajı yazmanın resmi bir yolu yok. Ofisten yazılanlar şöyle iletilir:
+  - tur sürerken bir sonraki araç çağrısından sonra eklenen bağlam olarak,
+  - tur biterken `Stop` hook'uyla,
+  - oturum boştayken `asyncRewake` bekçisiyle (`sidecar/claudio-waiter.mjs`).
+
+  Claude bunları "Kullanıcı Claudio Ofis'ten yazdı" notu olarak görür. Alt ajana yazılan mesaj o ajanın bir sonraki adımında teslim edilir.
 
 ## Demo modu
 
-Anahtar olmadan akışı denemek için yan süreç senaryolu bir oturum oynatabilir:
+Gerçek oturum olmadan akışı denemek için köprü senaryolu bir oturum oynatabilir:
 
 ```bash
 CLAUDIO_FAKE=1 npm run tauri dev
