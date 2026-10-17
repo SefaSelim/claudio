@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- The bridge reads what Claude Code can use in the attached project (built-in, user, project and plugin agents, skills and slash commands) and the session's TaskCreate list, and follows the session when it changes directory.
+- Failed tool calls, API errors and context compaction now reach the office; the hook installer registers the new events and upgrades older installs on connect.
+
 ## [0.6.0] - 2026-10-17
 
 Roadmap phase 6: polish and packaging.

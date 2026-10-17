@@ -9,9 +9,10 @@
 //    oturum boşta ise claudio-waiter.mjs (asyncRewake) ile iletilir
 //
 // Gelen komutlar: status, attach {sessionId}, detach, send {text, target?}, answer {requestId, ...},
-//                 install_hooks, uninstall_hooks, set_option {answerInOffice}
+//                 install_hooks, uninstall_hooks, set_option {answerInOffice}, roster
 // Giden olaylar:  ready, sessions, attached, detached, history, chat, hook, request,
-//                 request_cancelled, queued, delivered, hooks_status, error
+//                 request_cancelled, queued, delivered, hooks_status, error, roster, tasks,
+//                 agent_stats
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -19,7 +20,8 @@ import http from 'node:http';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import { listSessions, findTranscript, TranscriptTail, subagentTranscript } from './sessions.mjs';
+import { listSessions, findTranscript, TranscriptTail, subagentTranscript, lastUsage } from './sessions.mjs';
+import { readRoster, readTasks } from './roster.mjs';
 import { hooksInstalled, hooksCurrent, installHooks, uninstallHooks } from './hooks-config.mjs';
 import { BRIDGE_PORT, tokenFile, attachmentsDir } from './paths.mjs';
 
@@ -204,7 +206,29 @@ function stopSubagentTail(agentId) {
   clearTimeout(entry.timer);
   entry.tail?.flushAndStop();
   attached.subTails.delete(agentId);
+  // The finished subagent's model and context size, from its own transcript.
+  const main = knownTranscripts.get(attached.sessionId) ?? findTranscript(attached.sessionId);
+  const usage = main && lastUsage(subagentTranscript(main, attached.sessionId, agentId));
+  if (usage) emit({ type: 'agent_stats', agentId, model: usage.model, tokens: usage.context });
 }
+
+// ---------- roster and task list ----------
+function sendRoster() {
+  if (!attached) return;
+  const cwd = attached.cwd || (FAKE ? '' : listSessions().find((s) => s.sessionId === attached.sessionId)?.cwd) || '';
+  emit({ type: 'roster', ...readRoster(cwd) });
+}
+
+let lastTasks = '';
+function pollTasks() {
+  if (!attached || FAKE) return;
+  const tasks = readTasks(attached.sessionId);
+  const key = JSON.stringify(tasks);
+  if (key === lastTasks) return;
+  lastTasks = key;
+  emit({ type: 'tasks', sessionId: attached.sessionId, tasks });
+}
+const TASK_TOOLS = new Set(['TaskCreate', 'TaskUpdate', 'TodoWrite']);
 
 // ---------- hook'lar ----------
 const pick = (b) => ({
@@ -218,6 +242,10 @@ const pick = (b) => ({
   permission_mode: b.permission_mode ?? null,
   notification_type: b.notification_type ?? null,
   message: b.message ?? null,
+  // PostToolUseFailure carries the error, StopFailure the API error kind.
+  error: typeof b.error === 'string' ? b.error.slice(0, 400) : null,
+  trigger: b.trigger ?? null,
+  task_subject: typeof b.task_subject === 'string' ? b.task_subject.slice(0, 140) : null,
 });
 
 /** Bir hook olayını işler ve Claude Code'a dönülecek JSON'u verir. */
@@ -232,6 +260,11 @@ export async function handleHook(body, res) {
   }
   waiting.delete(sessionId);
   emit({ type: 'hook', ...pick(body) });
+  if (event === 'TaskCreated' || event === 'TaskCompleted' || (event === 'PostToolUse' && TASK_TOOLS.has(body.tool_name))) setTimeout(pollTasks, 250);
+  if (event === 'CwdChanged' && typeof body.new_cwd === 'string' && body.new_cwd) {
+    attached.cwd = body.new_cwd;
+    sendRoster();
+  }
   if (event === 'UserPromptSubmit' || event === 'PreToolUse' || event === 'PostToolUse') setBusy(true);
   if (event === 'SubagentStart' && body.agent_id) startSubagentTail(sessionId, body.agent_id);
   if (event === 'SubagentStop' && body.agent_id) stopSubagentTail(body.agent_id);
@@ -283,8 +316,11 @@ function attach(sessionId) {
   const transcript = knownTranscripts.get(sessionId) ?? findTranscript(sessionId);
   const session = (FAKE ? fakeSessions() : listSessions()).find((s) => s.sessionId === sessionId);
   // The session list knows whether the session is mid-turn right now.
-  attached = { sessionId, tail: null, busy: session?.status === 'busy', subTails: new Map() };
+  attached = { sessionId, cwd: session?.cwd ?? '', tail: null, busy: session?.status === 'busy', subTails: new Map() };
   emit({ type: 'attached', sessionId, name: session?.name ?? '', cwd: session?.cwd ?? '', busy: attached.busy });
+  lastTasks = '';
+  sendRoster();
+  pollTasks();
   if (FAKE) return startFake(sessionId);
   if (!transcript) return emit({ type: 'history', items: [], note: 'Kayıt dosyası henüz yok; ilk mesajdan sonra görünür.' });
   const tail = new TranscriptTail(transcript, (item) => isAttached(sessionId) && emit({ type: 'chat', ...item }));
@@ -427,6 +463,8 @@ async function handle(command) {
       return send(command);
     case 'answer':
       return answer(command);
+    case 'roster':
+      return sendRoster();
     case 'install_hooks':
       try {
         installHooks({ token: TOKEN, waiterPath: path.join(here, 'claudio-waiter.mjs') });
@@ -478,6 +516,8 @@ function fakeDeliver(sessionId) {
 if (FAKE) fakeModule = await import('./fake.mjs');
 
 setInterval(pollSessions, 2000);
+// No hook fires when a task goes in progress, so the files are polled as well.
+setInterval(pollTasks, 2000);
 emit({ type: 'ready', fake: FAKE, attached: null, ...options });
 pollSessions();
 hooksStatus();
