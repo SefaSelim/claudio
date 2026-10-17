@@ -166,3 +166,41 @@ export class TranscriptTail {
 export function subagentTranscript(sessionTranscript, sessionId, agentId) {
   return path.join(path.dirname(sessionTranscript), sessionId, 'subagents', `agent-${agentId}.jsonl`);
 }
+
+/**
+ * Model and token use from the last assistant reply in a transcript, read from the end of
+ * the file only. `context` is what the reply had in its window: input plus both cache
+ * counts plus output, the number Claude Code reports for a resumed session.
+ */
+export function lastUsage(file, maxBytes = 256 * 1024) {
+  let text = '';
+  try {
+    const fd = fs.openSync(file, 'r');
+    try {
+      const size = fs.fstatSync(fd).size;
+      const start = Math.max(0, size - maxBytes);
+      const buf = Buffer.alloc(size - start);
+      fs.readSync(fd, buf, 0, buf.length, start);
+      text = buf.toString('utf8');
+    } finally {
+      fs.closeSync(fd);
+    }
+  } catch {
+    return null;
+  }
+  const lines = text.split('\n');
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (!lines[i].includes('"usage"')) continue;
+    try {
+      const rec = JSON.parse(lines[i]);
+      const msg = rec.message;
+      const u = msg?.usage;
+      if (rec.type !== 'assistant' || !u) continue;
+      const context = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.output_tokens ?? 0);
+      return { model: msg.model ?? null, context, output: u.output_tokens ?? 0, at: rec.timestamp ? Date.parse(rec.timestamp) : null };
+    } catch {
+      // a line cut at the read boundary
+    }
+  }
+  return null;
+}

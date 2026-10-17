@@ -10,6 +10,11 @@ import { BRIDGE_PORT } from './paths.mjs';
 
 export const HOOK_URL = `http://127.0.0.1:${BRIDGE_PORT}/hook`;
 const WAITER_MARK = 'claudio-waiter';
+export const HOOK_EVENTS = [
+  'SessionStart', 'UserPromptSubmit', 'PreToolUse', 'PermissionRequest', 'PostToolUse', 'SubagentStart',
+  'SubagentStop', 'Notification', 'Stop', 'SessionEnd', 'PostToolUseFailure', 'StopFailure', 'PreCompact',
+  'PostCompact', 'CwdChanged', 'TaskCreated', 'TaskCompleted',
+];
 
 const settingsPath = () => path.join(CLAUDE_DIR, 'settings.json');
 
@@ -78,6 +83,14 @@ export function installHooks({ token, waiterPath }) {
     Notification: [http(5)],
     Stop: [http(10), waiter],
     SessionEnd: [http(5)],
+    // Fire-and-forget: they only feed what the office shows.
+    PostToolUseFailure: [http(5)],
+    StopFailure: [http(5)],
+    PreCompact: [http(5)],
+    PostCompact: [http(5)],
+    CwdChanged: [http(5)],
+    TaskCreated: [http(5)],
+    TaskCompleted: [http(5)],
   };
   settings.hooks ??= {};
   for (const [event, hooks] of Object.entries(plan)) {
@@ -92,7 +105,11 @@ export function installHooks({ token, waiterPath }) {
  */
 export function hooksCurrent({ token, waiterPath }) {
   try {
-    const all = Object.values(readSettings().hooks ?? {}).flatMap((groups) => groups.flatMap((g) => g.hooks ?? [])).filter(isOurs);
+    const hooks = readSettings().hooks ?? {};
+    // A newer office registers more events; an install that lacks one is stale too.
+    const missing = HOOK_EVENTS.some((event) => !(hooks[event] ?? []).some((g) => (g.hooks ?? []).some(isOurs)));
+    if (missing) return false;
+    const all = Object.values(hooks).flatMap((groups) => groups.flatMap((g) => g.hooks ?? [])).filter(isOurs);
     const waiter = waiterPath.replaceAll('\\', '/');
     return all.every((h) => (h.type === 'http' ? h.headers?.['X-Claudio-Token'] === token : String(h.command).includes(waiter)));
   } catch {
