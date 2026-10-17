@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-18
+
+Signals, alarm and meters: the office reads what shell commands mean and how much context Claude uses.
+
 ### Added
 
 - The bridge recognises deploys, builds, test runs and git pushes in Bash and PowerShell calls and reports how each one ended, with the first meaningful error line and a failure count.
@@ -122,7 +126,8 @@ First working prototype, covering roadmap phases 0 and 1. Commits before this re
 
 - The window position is no longer saved while the window is minimized.
 
-[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/SefaSelim/claudio/compare/v0.7.0...v0.8.0
 [0.7.0]: https://github.com/SefaSelim/claudio/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/SefaSelim/claudio/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/SefaSelim/claudio/compare/v0.4.0...v0.5.0
