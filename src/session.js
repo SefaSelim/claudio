@@ -188,6 +188,12 @@ function onEvent(evt) {
       state.hasCredentials = evt.hasCredentials;
       state.defaultCwd = evt.cwd;
       if (evt.running != null) state.running = evt.running;
+      // Sayfa yenilendiyse oturum yan süreçte sürüyor olabilir; ana ajanı geri getir.
+      if (state.running && !state.agents.has('main')) {
+        ensureAgent('main');
+        state.chat.push({ role: 'system', text: 'Oturum sürüyor; önceki mesajlar bu pencerede yok.' });
+        notify({ kind: 'chat' });
+      }
       notify({ kind: 'status' });
       break;
     case 'auth_required':
@@ -196,7 +202,8 @@ function onEvent(evt) {
       break;
     case 'session_started':
       Object.assign(state, { running: true, cwd: evt.cwd, mode: evt.permissionMode, ask: evt.ask, error: null, authRequired: false });
-      state.chat = [{ role: 'system', text: `Oturum açıldı · ${evt.cwd}` }];
+      state.chat = [{ role: 'system', text: `Oturum açıldı · ${evt.cwd}` }, ...(firstPrompt ? [{ role: 'user', text: firstPrompt }] : [])];
+      firstPrompt = '';
       state.requests = [];
       pendingLaunches.length = 0;
       clearAgents();
@@ -249,9 +256,11 @@ function onEvent(evt) {
 
 // ---------- komutlar ----------
 
+// Oturum açılınca sohbetin başına eklenir.
+let firstPrompt = '';
+
 export function startSession({ cwd, prompt, permissionMode, ask }) {
-  state.chat = [{ role: 'user', text: prompt }];
-  notify({ kind: 'chat' });
+  firstPrompt = prompt;
   return send({ cmd: 'start', cwd, prompt, permissionMode, ask });
 }
 
