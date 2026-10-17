@@ -41,6 +41,22 @@ const ago = (ms) => {
   const m = Math.round((Date.now() - ms) / 60000);
   return m < 1 ? 'şimdi' : m < 60 ? `${m} dk önce` : `${Math.round(m / 60)} sa önce`;
 };
+const MEETING_TOPICS = ['Durum değerlendirmesi', 'Sıradaki adımlar', 'Engeller ve riskler', 'Mimari karar'];
+const MEETING_PHASE = { running: 'sürüyor', ending: 'özet yazılıyor', done: 'bitti' };
+
+/** Meeting prompts are long; the chat shows them as short lines. */
+function shownText(text) {
+  const t = String(text ?? '');
+  if (t.startsWith(session.MEETING_START)) return `Toplantı başladı: ${t.slice(session.MEETING_START.length).split('\n')[0].trim()}`;
+  if (t.startsWith(session.MEETING_INTERJECT)) return t.slice(session.MEETING_INTERJECT.length).trim();
+  if (t.startsWith(session.MEETING_END)) return 'Toplantıyı bitir ve özetle';
+  return t;
+}
+const meetingKind = (text) => {
+  const t = String(text ?? '');
+  return t.startsWith(session.MEETING_START) || t.startsWith(session.MEETING_END) ? 'sys' : null;
+};
+
 const shortPath = (p) => String(p ?? '').split(/[\\/]/).filter(Boolean).slice(-2).join('/');
 
 export function createUI(scene) {
@@ -103,6 +119,8 @@ export function createUI(scene) {
       const on = panel && (panel.type === k || (k === 'chat' && panel.type === 'agent' && panel.id === 'main'));
       btn.classList.toggle('on', Boolean(on));
     }
+    const live = dock.querySelector('[data-open="meeting"] .livedot');
+    live.hidden = !(s.meeting && s.meeting.phase !== 'done');
     const count = s.requests.length;
     const b = dock.querySelector('.badge');
     b.hidden = !count;
@@ -215,6 +233,7 @@ export function createUI(scene) {
     if (panel.type === 'session') html = sessionPanel();
     if (panel.type === 'settings') html = settingsPanel();
     if (panel.type === 'agent') html = agentPanel();
+    if (panel.type === 'meeting') html = session.state.meeting ? meetingPanel() : meetingSetupPanel();
     panelEl.innerHTML = `<div class="card panel" data-hit${animate ? '' : ' style="animation:none"'}>${html}</div>`;
     wirePanel();
   }
@@ -275,6 +294,126 @@ export function createUI(scene) {
       `<div class="chips-row" id="chips">${chips}</div>` + composer(placeholder, !s.attached);
   }
 
+  // ---------- toplantı ----------
+  let meetDraft = { topic: '', picked: null }; // picked: Set of subagent ids, null = everyone
+
+  function meetingSetupPanel() {
+    const s = session.state;
+    const subs = [...s.agents.values()].filter((a) => a.id !== 'main');
+    const picked = meetDraft.picked ?? new Set(subs.map((a) => a.id));
+    const people = [
+      `<label class="who on"><input type="checkbox" checked disabled><span class="mini-av"></span><b>Claude</b><span>toplantıyı yönetir</span></label>`,
+      ...subs.map((a) => `<label class="who${picked.has(a.id) ? ' on' : ''}"><input type="checkbox" data-who="${esc(a.id)}" ${picked.has(a.id) ? 'checked' : ''}><span class="mini-av"></span><b>${esc(a.label)}</b><span>${esc(a.description || a.type || '')}</span></label>`),
+    ].join('');
+    const can = s.attached && meetDraft.topic.trim();
+    return head('Toplantı ayarla', s.attached ? 'Konuyu yaz, kimlerin katılacağını seç' : 'Önce bir oturuma bağlan') +
+      `<form class="meetform" id="meetSetup"><div class="pbody"><span class="lbl">Konu</span>` +
+      `<textarea class="field" id="meetTopic" rows="2" placeholder="Toplantının konusu ne?" ${s.attached ? '' : 'disabled'}>${esc(meetDraft.topic)}</textarea>` +
+      `<div class="chips-wrap">${MEETING_TOPICS.map((t, i) => `<button type="button" class="chip" data-topic="${i}" ${s.attached ? '' : 'disabled'}>${esc(t)}</button>`).join('')}</div>` +
+      `<span class="lbl">Katılımcılar</span><div class="people">${people}</div>` +
+      (subs.length ? '' : '<p class="desc">Şu an açık alt ajan yok; Claude toplantıyı tek başına yürütür ve gerekirse sana soru sorar.</p>') +
+      `</div><div class="meet-actions"><button class="btn small" type="submit" id="meetStart" ${can ? '' : 'disabled'}>Toplantıyı başlat</button></div></form>`;
+  }
+
+  function meetingPanel() {
+    const m = session.state.meeting;
+    const phase = MEETING_PHASE[m.phase] ?? m.phase;
+    const st = `<span class="st${m.phase === 'done' ? '' : ' live'}" style="--c:var(${m.phase === 'done' ? '--ok' : '--s-talk'})"><i class="dot"></i><span>${phase}</span></span>`;
+    const names = m.participants.map((id) => session.state.agents.get(id)?.label ?? (id === 'main' ? 'Claude' : 'ajan')).join(', ');
+    const summary = m.phase === 'done'
+      ? `<div class="summary"><span class="lbl">Toplantı özeti</span><div class="sumtext">${esc(m.summary)}</div></div>` : '';
+    const actions = m.phase === 'done'
+      ? '<div class="meet-actions"><button class="btn ghost small" data-meet="copy">Özeti kopyala</button><button class="btn small" data-meet="close">Özeti kapat</button></div>'
+      : `<div class="meet-actions"><button class="btn ghost small" data-meet="end" ${m.phase === 'ending' ? 'disabled' : ''}>${m.phase === 'ending' ? 'Özet bekleniyor…' : 'Toplantıyı bitir'}</button></div>`;
+    const form = m.phase === 'done' ? '' :
+      `<form class="composer" id="meetForm"><input id="meetInput" placeholder="Araya gir…" autocomplete="off" aria-label="Araya gir"><button class="send" type="submit" aria-label="Gönder">${ICON.send}</button></form>`;
+    return head(esc(m.topic), esc(names), st) +
+      `<div class="pbody scroll" id="pbody"><div class="thread" id="meetThread"></div>${summary}</div>` + actions + form;
+  }
+
+  function renderMeetingThread() {
+    const el = $('meetThread');
+    const m = session.state.meeting;
+    if (!el || !m) return;
+    const items = session.state.chat.slice(m.startChat);
+    const main = session.state.agents.get('main');
+    const typing = m.phase !== 'done' && main && BUSY_STATES.has(main.state)
+      ? `<div class="typing"><i></i><i></i><i></i><span>${esc(main.text || 'Claude düşünüyor')}</span></div>` : '';
+    el.innerHTML = items.map((x) => {
+      const kind = x.role === 'user' ? meetingKind(x.text) ?? 'me' : x.role === 'system' ? 'sys' : x.role === 'task' ? 'task' : 'ag';
+      // The summary itself is shown below the thread.
+      if (m.phase === 'done' && x.role === 'assistant' && m.summary && x.text.includes(m.summary.slice(0, 40))) return '';
+      return `<div class="m ${kind}${x.pending ? ' pending' : ''}">${esc(shownText(x.text))}</div>`;
+    }).join('') + typing;
+    const body = $('pbody');
+    if (body) body.scrollTop = body.scrollHeight;
+  }
+
+  function wireMeeting(root) {
+    const setup = $('meetSetup');
+    if (setup) {
+      const topic = $('meetTopic');
+      const start = $('meetStart');
+      const refresh = () => { start.disabled = !(session.state.attached && meetDraft.topic.trim()); };
+      topic.addEventListener('input', () => { meetDraft.topic = topic.value; refresh(); });
+      topic.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); setup.requestSubmit(); } });
+      for (const chip of root.querySelectorAll('[data-topic]')) {
+        chip.addEventListener('click', () => { meetDraft.topic = MEETING_TOPICS[Number(chip.dataset.topic)]; topic.value = meetDraft.topic; refresh(); topic.focus(); });
+      }
+      for (const box of root.querySelectorAll('[data-who]')) {
+        box.addEventListener('change', () => {
+          const subs = [...session.state.agents.keys()].filter((id) => id !== 'main');
+          meetDraft.picked ??= new Set(subs);
+          if (box.checked) meetDraft.picked.add(box.dataset.who); else meetDraft.picked.delete(box.dataset.who);
+          box.closest('.who').classList.toggle('on', box.checked);
+        });
+      }
+      setup.addEventListener('submit', (e) => {
+        e.preventDefault();
+        if (start.disabled) return;
+        const subs = [...session.state.agents.keys()].filter((id) => id !== 'main');
+        const picked = meetDraft.picked ?? new Set(subs);
+        const topicText = meetDraft.topic.trim();
+        meetDraft = { topic: '', picked: null };
+        session.startMeeting(topicText, subs.filter((id) => picked.has(id)));
+      });
+      setTimeout(() => (topic.disabled ? null : topic.focus({ preventScroll: true })), 60);
+    }
+    for (const btn of root.querySelectorAll('[data-meet]')) {
+      btn.addEventListener('click', () => {
+        const act = btn.dataset.meet;
+        if (act === 'end') session.endMeeting();
+        if (act === 'close') session.closeMeeting();
+        if (act === 'copy') {
+          const m = session.state.meeting;
+          navigator.clipboard?.writeText(`${m?.topic}\n\n${m?.summary}`);
+          btn.textContent = 'Kopyalandı';
+        }
+      });
+    }
+    const form = $('meetForm');
+    if (form) {
+      const input = $('meetInput');
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const text = input.value.trim();
+        if (!text) return;
+        input.value = '';
+        session.interjectMeeting(text);
+      });
+      setTimeout(() => input.focus({ preventScroll: true }), 60);
+    }
+    renderMeetingThread();
+  }
+
+  /** Keep the office in step with the meeting: walk in when it starts, back to the desks when it ends. */
+  function syncMeetingScene() {
+    const m = session.state.meeting;
+    const live = m && m.phase !== 'done';
+    if (live && !scene.inMeeting) scene.startMeeting(m.participants);
+    if (!live && scene.inMeeting) scene.endMeeting();
+  }
+
   const BUSY_STATES = new Set(['think', 'read', 'write', 'bash', 'talk']);
 
   function renderThread() {
@@ -293,7 +432,7 @@ export function createUI(scene) {
           const files = m.files?.length
             ? `<span class="mfiles">${m.files.map((f) => (f.preview ? `<img src="${f.preview}" alt="${esc(f.name)}" title="${esc(f.name)}">` : `<span class="mfile">${esc(f.name)}</span>`)).join('')}</span>`
             : '';
-          return `<div class="m ${cls}${m.pending ? ' pending' : ''}">${label}${files}${esc(m.text)}${status}</div>`;
+          return `<div class="m ${cls}${m.pending ? ' pending' : ''}">${label}${files}${esc(shownText(m.text))}${status}</div>`;
         }).join('')
       : `<div class="m sys">${panel.id === 'main' ? 'Henüz mesaj yok.' : 'Bu ajanın kaydı henüz gelmedi.'}</div>`) + typing;
     const body = $('pbody');
@@ -402,6 +541,7 @@ export function createUI(scene) {
       });
       setTimeout(() => (input.disabled ? null : input.focus({ preventScroll: true })), 60);
     }
+    if (panel.type === 'meeting') wireMeeting(root);
     renderThread();
     renderSteps();
   }
@@ -571,8 +711,10 @@ export function createUI(scene) {
         scene.addAgent(change.agent.id, change.agent.type);
         scene.setState(change.agent.id, change.agent.state);
         tagFor(change.agent);
+        if (panel?.type === 'meeting' && !session.state.meeting) renderPanel();
         break;
       case 'agent_updated':
+        if (panel?.type === 'meeting' && change.agent.id === 'main') renderMeetingThread();
         scene.setState(change.agent.id, change.agent.state);
         tagFor(change.agent);
         if (panel?.type === 'agent' && panel.id === change.agent.id) {
@@ -588,6 +730,7 @@ export function createUI(scene) {
         }
         break;
       case 'agent_chat':
+        if (panel?.type === 'meeting') renderMeetingThread();
         if (panel?.type === 'agent' && panel.id === change.id) renderThread();
         break;
       case 'busy':
@@ -608,7 +751,23 @@ export function createUI(scene) {
         break;
       case 'chat':
         renderThread();
+        renderMeetingThread();
         break;
+      case 'meeting': {
+        syncMeetingScene();
+        renderDock();
+        const m = session.state.meeting;
+        // Starting a meeting opens its panel; finishing it keeps the summary on screen.
+        if (m?.phase === 'running' && panel?.type !== 'meeting') {
+          panel = { type: 'meeting' };
+          scene.select(null);
+          renderPanel(true);
+          renderDock();
+          renderRequests();
+        } else if (panel?.type === 'meeting') renderPanel();
+        if (m?.phase === 'done') alertUser('Toplantı bitti', m.summary.slice(0, 140));
+        break;
+      }
       case 'requests':
         renderRequests();
         renderDock();

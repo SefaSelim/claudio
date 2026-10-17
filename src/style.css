@@ -239,3 +239,21 @@ code { font-family: var(--f-mono); font-size: 11.5px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }
+
+/* meetings */
+.livedot { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--s-talk); border: 1.5px solid var(--surface); --s-wait: var(--s-talk); animation: ring 1.3s infinite; }
+.chips-wrap { display: flex; flex-wrap: wrap; gap: 5px; }
+.people { display: grid; gap: 5px; }
+.who { display: grid; grid-template-columns: auto auto auto 1fr; align-items: center; gap: 8px; padding: 6px 9px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; font-size: 12px; transition: border-color .15s, background .15s; }
+.who.on { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: var(--accent-soft); }
+.who input { accent-color: var(--accent); margin: 0; }
+.who > span:last-child { color: var(--muted); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.summary { display: grid; gap: 5px; padding: 10px 11px; border-radius: 11px; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); animation: mIn .3s var(--ease-out) both; }
+.sumtext { font-size: 12.5px; line-height: 1.45; white-space: pre-wrap; user-select: text; }
+.meet-actions { display: flex; justify-content: flex-end; gap: 6px; padding: 6px 12px 0; border-top: 1px solid var(--line); }
+.meet-actions ~ .composer { border-top: 0; }
+.meet-actions:last-child { padding-bottom: 10px; }
+.meetform { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.meetform .pbody { gap: 7px; }
+.meetform textarea.field { min-height: 44px; resize: none; }
+.meetform .meet-actions { padding-bottom: 10px; }

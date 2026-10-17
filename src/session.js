@@ -19,6 +19,8 @@ export const state = {
   agents: new Map(), // id -> { id, kind, type, label, description, state, text, steps }
   chat: [], // { role: 'user' | 'assistant' | 'system', text, pending?, via? }
   requests: [], // { requestId, kind: 'permission' | 'question', toolName, input, agentId }
+  // { topic, participants, startChat, phase: 'running' | 'ending' | 'done', summary, notes, startedAt }
+  meeting: null,
   error: null,
 };
 
@@ -170,6 +172,10 @@ function onHook(evt) {
 function resetSessionView() {
   state.chat = [];
   state.requests = [];
+  if (state.meeting) {
+    state.meeting = null;
+    notify('meeting');
+  }
   state.mode = null;
   pendingLaunches.length = 0;
   clearAgents();
@@ -236,8 +242,14 @@ function onEvent(evt) {
       break;
     case 'chat':
       state.chat.push({ role: evt.role, text: evt.text });
-      if (state.chat.length > 200) state.chat.shift();
-      if (evt.role === 'assistant') say('main', evt.text);
+      if (state.chat.length > 200) {
+        state.chat.shift();
+        if (state.meeting) state.meeting.startChat = Math.max(0, state.meeting.startChat - 1);
+      }
+      if (evt.role === 'assistant') {
+        say('main', evt.text);
+        captureSummary(evt.text);
+      }
       notify('chat');
       break;
     case 'hook':
@@ -333,6 +345,68 @@ export const attach = (sessionId) => send({ cmd: 'attach', sessionId });
 export const detach = () => send({ cmd: 'detach' });
 export const installHooks = () => send({ cmd: 'install_hooks' });
 export const uninstallHooks = () => send({ cmd: 'uninstall_hooks' });
+
+// ---------- meetings ----------
+// A meeting is a structured prompt to the main agent. The office walks everyone to the
+// meeting room, shows the conversation, and ends when Claude writes the summary heading.
+
+export const SUMMARY_MARK = 'Toplantı özeti';
+export const MEETING_START = '[Toplantı] Konu:';
+export const MEETING_INTERJECT = '[Toplantı, araya giriyorum]';
+export const MEETING_END = '[Toplantı] Toplantıyı bitir';
+
+function meetingPrompt(topic, names) {
+  return [
+    `${MEETING_START} ${topic}`,
+    `Katılımcılar: ${names.join(', ')}`,
+    '',
+    'Kısa bir toplantı yapalım:',
+    '1. Her katılımcının durumunu bir iki cümleyle anlat. Açık alt ajanlar varsa onlara SendMessage ile sor; yoksa bildiklerinden özetle.',
+    '2. Karar gereken noktalarda AskUserQuestion ile bana çoktan seçmeli soru sor.',
+    '3. Araya girersem notlarımı dikkate al.',
+    `4. Bitirince "## ${SUMMARY_MARK}" başlığı altında kararları ve görevleri madde madde yaz.`,
+  ].join('\n');
+}
+
+export function startMeeting(topic, participants) {
+  if (!state.attached || state.meeting) return;
+  const ids = ['main', ...participants.filter((id) => id !== 'main' && state.agents.has(id))];
+  const names = ids.map((id) => state.agents.get(id)?.label ?? 'Claude');
+  state.meeting = { topic, participants: ids, startChat: state.chat.length, phase: 'running', summary: null, notes: [], startedAt: Date.now() };
+  notify('meeting');
+  return sendMessage(meetingPrompt(topic, names));
+}
+
+export function interjectMeeting(text) {
+  if (!state.meeting || state.meeting.phase === 'done') return;
+  state.meeting.notes.push(text);
+  return sendMessage(`${MEETING_INTERJECT} ${text}`);
+}
+
+export function endMeeting() {
+  if (!state.meeting || state.meeting.phase !== 'running') return;
+  state.meeting.phase = 'ending';
+  notify('meeting');
+  return sendMessage(`${MEETING_END} ve "## ${SUMMARY_MARK}" başlığıyla kısa bir özet yaz.`);
+}
+
+export function closeMeeting() {
+  state.meeting = null;
+  notify('meeting');
+}
+
+/** When Claude writes the summary heading, the meeting is over. */
+function captureSummary(text) {
+  const m = state.meeting;
+  if (!m || m.phase === 'done') return;
+  // Only a real heading counts, not a sentence that mentions the summary.
+  const heading = new RegExp(`^\\s*(#{1,4}\\s*|\\*\\*)${SUMMARY_MARK}`, 'mi').exec(text);
+  if (!heading) return;
+  const rest = text.slice(heading.index + heading[0].length).replace(/^[*:\s]*/, '').trim();
+  m.summary = rest || text.trim();
+  m.phase = 'done';
+  notify('meeting');
+}
 
 // Bridge options are kept in the office so they survive restarts of the bridge.
 const OPTIONS_KEY = 'claudio.bridgeOptions';
