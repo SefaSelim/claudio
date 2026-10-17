@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-10-17
+
+Roadmap phase 4: question and permission controls.
+
 ### Added
 
 - "Ajanlar bana soru sorsun" setting. When it is off, `AskUserQuestion` is declined with a note telling Claude to choose and explain, and the office shows that Claude decided on its own.
@@ -66,7 +70,8 @@ First working prototype, covering roadmap phases 0 and 1. Commits before this re
 
 - The window position is no longer saved while the window is minimized.
 
-[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/SefaSelim/claudio/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/SefaSelim/claudio/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/SefaSelim/claudio/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/SefaSelim/claudio/releases/tag/v0.1.0
