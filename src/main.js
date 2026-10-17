@@ -22,9 +22,51 @@ grip.addEventListener('dblclick', () => {
   invoke('reset_position').catch(console.error);
 });
 
+// Evening/day lighting. "auto" follows the clock (evening from 18:00 to 07:00);
+// clicking picks the other mood explicitly and remembers it.
+const MOOD_KEY = 'claudio.mood';
+const moodBtn = document.getElementById('moodBtn');
+const moodTip = document.getElementById('moodTip');
+const readMood = () => {
+  try { return localStorage.getItem(MOOD_KEY) || 'auto'; } catch { return 'auto'; }
+};
+const isEvening = () => { const h = new Date().getHours(); return h >= 18 || h < 7; };
+function applyMood() {
+  const pref = readMood();
+  const night = pref === 'auto' ? isEvening() : pref === 'night';
+  scene.setMood(night);
+  moodBtn.classList.toggle('night', night);
+  moodTip.textContent = `${night ? 'Akşam' : 'Gündüz'}${pref === 'auto' ? ' (otomatik)' : ''} · tıkla: ${night ? 'gündüz' : 'akşam'}`;
+}
+moodBtn.addEventListener('click', () => {
+  const night = moodBtn.classList.contains('night');
+  try { localStorage.setItem(MOOD_KEY, night ? 'day' : 'night'); } catch { /* storage unavailable */ }
+  applyMood();
+});
+moodBtn.addEventListener('contextmenu', (e) => {
+  // Right-click goes back to following the clock.
+  e.preventDefault();
+  try { localStorage.removeItem(MOOD_KEY); } catch { /* storage unavailable */ }
+  applyMood();
+});
+applyMood();
+setInterval(applyMood, 5 * 60 * 1000);
+
 document.getElementById('quit').addEventListener('click', () => {
   invoke('quit_app').catch(() => window.close());
 });
 
 watchHitRegions();
-connect().catch(console.error);
+
+// Development aid: open the Vite page in a normal browser with ?scene-demo to see agents
+// walk in, work, and leave without Tauri or a Claude Code session.
+if (!('__TAURI_INTERNALS__' in window) && new URLSearchParams(location.search).has('scene-demo')) {
+  document.documentElement.style.background = '#8a8f99';
+  scene.addAgent('main', 'main');
+  scene.setState('main', 'talk');
+  const crew = [['a1', 'Explore', 'read'], ['a2', 'Plan', 'write'], ['a3', 'general-purpose', 'bash'], ['a4', 'Explore', 'wait'], ['a5', 'code-reviewer', 'read'], ['a6', 'general-purpose', 'write']];
+  crew.forEach(([id, type, st], i) => setTimeout(() => { scene.addAgent(id, type); scene.setState(id, st); }, 600 + i * 700));
+  setTimeout(() => scene.removeAgent('a2'), 9000);
+} else {
+  connect().catch(console.error);
+}

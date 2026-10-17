@@ -70,6 +70,10 @@ code { font-family: var(--f-mono); font-size: 11.5px; }
 .dk.on { background: var(--accent); color: #fff; }
 .dk svg { width: 17px; height: 17px; transition: transform .35s var(--spring); }
 .dk.gear:hover svg { transform: rotate(70deg); }
+.dk.mood svg { position: absolute; transition: transform .45s var(--spring), opacity .2s; }
+.dk.mood .moon { opacity: 0; transform: rotate(-120deg) scale(.4); }
+.dk.mood.night .moon { opacity: 1; transform: none; }
+.dk.mood.night .sun { opacity: 0; transform: rotate(120deg) scale(.4); }
 .dk.grip { cursor: grab; color: var(--muted); }
 .dk.grip:active { cursor: grabbing; }
 .dock.dragging .tip { opacity: 0 !important; }
