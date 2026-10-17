@@ -27,6 +27,7 @@ function devBridge(command) {
     }, 1500);
   }
   if (command.cmd === 'answer') session.inject({ type: 'chat', role: 'system', text: `Demo: istek cevaplandı (${command.behavior}).` });
+  if (command.cmd === 'set_option') session.inject({ type: 'options', ...command.options });
 }
 
 export async function runDevDemo() {
@@ -65,7 +66,10 @@ export async function runDevDemo() {
     input: { questions: [{ question: 'Hızlı komutlar nerede dursun?', header: 'Yer', multiSelect: false, options: [{ label: 'Sohbetin altında', description: 'Yazı kutusunun hemen üstünde' }, { label: 'Başlıkta', description: 'Ajan adının yanında' }] }] },
   });
   await wait(4000);
-  session.inject({ type: 'request', requestId: 'p1', kind: 'permission', sessionId: SID, toolName: 'Bash', agentId: null, input: { command: 'npm run build' } });
+  session.inject({
+    type: 'request', requestId: 'p1', kind: 'permission', sessionId: SID, toolName: 'Bash', agentId: null, input: { command: 'npm run build' },
+    suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm run build' }], behavior: 'allow', destination: 'session' }],
+  });
   hook('SubagentStop', { agent_id: 'explore-1', agent_type: 'Explore' });
   await wait(3000);
   hook('SubagentStop', { agent_id: 'plan-1', agent_type: 'Plan' });

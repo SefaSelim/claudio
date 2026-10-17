@@ -10,6 +10,8 @@ export const state = {
   hooksInstalled: false,
   hooksError: null,
   answerInOffice: true,
+  askQuestions: true,
+  askEveryTask: false,
   sessions: [], // { sessionId, name, cwd, status, version, entrypoint, updatedAt }
   attached: null, // { sessionId, name, cwd }
   busy: false, // whether the attached session is mid-turn
@@ -178,7 +180,16 @@ function onEvent(evt) {
     case 'ready':
       state.ready = true;
       state.fake = evt.fake;
-      state.answerInOffice = evt.answerInOffice;
+      for (const key of OPTION_KEYS) if (typeof evt[key] === 'boolean') state[key] = evt[key];
+      {
+        // A fresh bridge starts with defaults; push the options the user picked earlier.
+        const saved = savedOptions();
+        const differ = OPTION_KEYS.filter((k) => typeof saved[k] === 'boolean' && saved[k] !== state[k]);
+        if (differ.length) {
+          for (const k of differ) state[k] = saved[k];
+          send({ cmd: 'set_option', options: Object.fromEntries(differ.map((k) => [k, saved[k]])) });
+        }
+      }
       // Sayfa yenilendiyse köprü hâlâ bir oturuma bağlı olabilir.
       if (evt.attached && !state.attached) {
         state.attached = { sessionId: evt.attached, name: '', cwd: '' };
@@ -236,6 +247,18 @@ function onEvent(evt) {
       state.busy = evt.busy;
       notify('busy');
       break;
+    case 'options':
+      for (const key of OPTION_KEYS) if (typeof evt[key] === 'boolean') state[key] = evt[key];
+      notify('status');
+      break;
+    case 'decided_alone': {
+      const id = evt.agentId && state.agents.has(evt.agentId) ? evt.agentId : 'main';
+      state.chat.push({ role: 'system', text: `Soru sorma kapalı; ${state.agents.get(id)?.label ?? 'Claude'} kendi karar verdi${evt.question ? `: "${evt.question}"` : ''}.` });
+      say(id, 'Kendim karar veriyorum');
+      notify('chat');
+      notify('decided', { id, question: evt.question });
+      break;
+    }
     case 'agent_chat': {
       const agent = state.agents.get(evt.agentId);
       if (!agent) break;
@@ -311,10 +334,30 @@ export const detach = () => send({ cmd: 'detach' });
 export const installHooks = () => send({ cmd: 'install_hooks' });
 export const uninstallHooks = () => send({ cmd: 'uninstall_hooks' });
 
-export function setAnswerInOffice(value) {
-  state.answerInOffice = value;
-  return send({ cmd: 'set_option', options: { answerInOffice: value } });
+// Bridge options are kept in the office so they survive restarts of the bridge.
+const OPTIONS_KEY = 'claudio.bridgeOptions';
+const OPTION_KEYS = ['answerInOffice', 'askQuestions', 'askEveryTask'];
+
+function savedOptions() {
+  try {
+    return JSON.parse(localStorage.getItem(OPTIONS_KEY) || '{}');
+  } catch {
+    return {};
+  }
 }
+
+export function setOption(key, value) {
+  if (!OPTION_KEYS.includes(key)) return;
+  state[key] = value;
+  try {
+    localStorage.setItem(OPTIONS_KEY, JSON.stringify({ ...savedOptions(), [key]: value }));
+  } catch {
+    // Storage unavailable: the option lasts until the bridge restarts.
+  }
+  return send({ cmd: 'set_option', options: { [key]: value } });
+}
+
+export const setAnswerInOffice = (value) => setOption('answerInOffice', value);
 
 // Gönderilen eklerin önizlemeleri; köprü 'queued' ile clientId'yi geri yollayınca sohbet öğesine bağlanır.
 const outgoing = new Map(); // clientId -> [{ name, preview }]

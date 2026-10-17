@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- "Ajanlar bana soru sorsun" setting. When it is off, `AskUserQuestion` is declined with a note telling Claude to choose and explain, and the office shows that Claude decided on its own.
+- "Her yeni görevde sor" setting that asks Claude to check in with a short multiple-choice question before starting work sent from the office.
+- "Bu oturumda hep izin ver" on permission cards, which applies the rule Claude Code suggests for that tool.
+- Bridge options are remembered by the office and restored when the bridge restarts.
+
 ## [0.3.0] - 2026-10-17
 
 Roadmap phase 3: the agent card.

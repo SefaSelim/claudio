@@ -250,6 +250,8 @@ export function createUI(scene) {
     return head('Ayarlar', s.attached ? esc(s.attached.name || 'Bağlı oturum') : 'Bağlı oturum yok') +
       `<div class="pbody">` +
       `<div class="row"><div><b>İzinleri ve soruları ofisten cevapla</b><p class="desc">Açıkken izin istekleri ve AskUserQuestion önce burada görünür. Kapalıyken terminalde cevaplanır.</p></div><button class="sw" role="switch" id="answerSw" aria-checked="${s.answerInOffice}" aria-label="Ofisten cevapla"></button></div>` +
+      `<div class="row"><div><b>Ajanlar bana soru sorsun</b><p class="desc">Kapalıyken Claude soru sormak yerine makul olanı seçip nedenini yazar; ofis bunu bildirir.</p></div><button class="sw" role="switch" id="askSw" aria-checked="${s.askQuestions}" aria-label="Ajanlar soru sorsun"></button></div>` +
+      `<div class="collapse${s.askQuestions ? '' : ' closed'}" id="askMore"><div><div class="row"><div><b>Her yeni görevde sor</b><p class="desc">Ofisten verdiğin her işten önce Claude kısa bir çoktan seçmeli soru sorar.</p></div><button class="sw" role="switch" id="askEverySw" aria-checked="${s.askEveryTask}" aria-label="Her yeni görevde sor"></button></div></div></div>` +
       `<div class="kv"><span>Oturumun izin modu</span><b>${esc(m?.label ?? s.mode ?? 'bilinmiyor')}</b></div>` +
       `<p class="desc">İzin modunu terminalde Shift+Tab ile değiştirebilirsin. Bir izin kartında "düzenlemeleri otomatik onayla" seçersen oturum o moda geçer.</p>` +
       `<div class="row"><div><b>Windows bildirimleri</b><p class="desc">İzin ve soru geldiğinde, uzun bir tur bittiğinde.</p></div><button class="sw" role="switch" id="notifySw" aria-checked="${alerts.notify}" aria-label="Windows bildirimleri"></button></div>` +
@@ -331,6 +333,19 @@ export function createUI(scene) {
       const value = !session.state.answerInOffice;
       sw.setAttribute('aria-checked', value);
       session.setAnswerInOffice(value);
+    });
+    const askSw = $('askSw');
+    if (askSw) askSw.addEventListener('click', () => {
+      const value = !session.state.askQuestions;
+      askSw.setAttribute('aria-checked', value);
+      $('askMore').classList.toggle('closed', !value);
+      session.setOption('askQuestions', value);
+    });
+    const askEverySw = $('askEverySw');
+    if (askEverySw) askEverySw.addEventListener('click', () => {
+      const value = !session.state.askEveryTask;
+      askEverySw.setAttribute('aria-checked', value);
+      session.setOption('askEveryTask', value);
     });
     for (const [id, key] of [['notifySw', 'notify'], ['soundSw', 'sound']]) {
       const toggle = $(id);
@@ -456,6 +471,7 @@ export function createUI(scene) {
       `<div class="qh"><span class="mini-av"></span>${esc(agentLabel(req.agentId))} izin istiyor</div>` +
       `<div class="q">${esc(req.toolName)}</div><pre>${esc(detail)}</pre>` +
       `<div class="row start"><button class="btn" data-a="allow">İzin ver</button><button class="btn ghost" data-a="deny">Reddet</button>` +
+      (req.suggestions?.length ? '<button class="btn ghost" data-a="always">Bu oturumda hep izin ver</button>' : '') +
       (EDIT_TOOLS.has(req.toolName) ? '<button class="btn ghost" data-a="edits">İzin ver + düzenlemeleri otomatik onayla</button>' : '') +
       `<button class="link" data-a="terminal">Terminalde cevapla</button></div>`;
     el.addEventListener('click', (e) => {
@@ -463,6 +479,7 @@ export function createUI(scene) {
       if (!b) return;
       const a = b.dataset.a;
       const result = a === 'allow' ? { behavior: 'allow' }
+        : a === 'always' ? { behavior: 'always' }
         : a === 'edits' ? { behavior: 'allow', mode: 'acceptEdits' }
         : a === 'terminal' ? { behavior: 'terminal' }
         : { behavior: 'deny' };
@@ -583,6 +600,9 @@ export function createUI(scene) {
         if (panel?.type === 'agent' && panel.id === change.agent.id) closePanel();
         break;
       }
+      case 'decided':
+        alertUser(`${agentLabel(change.id)} kendi karar verdi`, change.question || 'Soru sorma kapalı olduğu için kendi seçti.');
+        break;
       case 'say':
         sayBubble(change.id, change.text);
         break;

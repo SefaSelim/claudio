@@ -43,7 +43,15 @@ function loadToken() {
 const TOKEN = loadToken();
 
 // ---------- durum ----------
-const options = { answerInOffice: true };
+// answerInOffice: hold permission prompts and questions for the office.
+// askQuestions: when false, AskUserQuestion is denied and Claude decides on its own.
+// askEveryTask: office messages ask Claude to check in with a short question before starting.
+const options = { answerInOffice: true, askQuestions: true, askEveryTask: false };
+
+const NO_QUESTIONS =
+  'Kullanıcı Claudio Ofis ayarlarında soru sorulmasını kapattı. Soru sorma; makul olanı seç, ' +
+  'kararını ve kısa nedenini yaz, sonra devam et.';
+const ASK_FIRST = '\n\n(Başlamadan önce, kararı kullanıcıya bağlı bir nokta varsa AskUserQuestion ile kısa, çoktan seçmeli bir soru sor.)';
 let attached = null; // { sessionId, tail, busy, subTails: Map<agentId, { tail, timer }> }
 const pending = new Map(); // requestId -> { resolve, kind, input }
 const queues = new Map(); // sessionId -> [{ id, text, target }]
@@ -112,7 +120,7 @@ function holdRequest(kind, sessionId, body, res) {
       if (why) emit({ type: 'request_cancelled', requestId, why });
       resolve(output ?? {});
     }
-    pending.set(requestId, { finish, kind, input: body.tool_input });
+    pending.set(requestId, { finish, kind, input: body.tool_input, suggestions: body.permission_suggestions ?? null });
     // Claude Code isteği kendisi bırakırsa (ör. terminalden cevaplandı) kartı kaldır.
     res.on('close', () => finish(null, 'oturum isteği bıraktı'));
     emit({
@@ -138,7 +146,10 @@ function answer({ requestId, behavior, answers, mode, message }) {
       ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...entry.input, answers } } }
       : {});
   }
-  const decision = { behavior };
+  // "always": allow and apply the rule Claude Code itself suggested for this tool (session scope).
+  const always = behavior === 'always';
+  const decision = { behavior: always ? 'allow' : behavior };
+  if (always && entry.suggestions?.length) decision.updatedPermissions = entry.suggestions;
   if (behavior === 'allow' && mode) decision.updatedPermissions = [{ type: 'setMode', mode, destination: 'session' }];
   if (behavior === 'deny') decision.message = message || 'Kullanıcı Claudio Ofis\'ten reddetti.';
   entry.finish({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } });
@@ -214,7 +225,12 @@ export async function handleHook(body, res) {
       if (!options.answerInOffice) return {};
       return holdRequest('permission', sessionId, body, res);
     case 'PreToolUse':
-      if (body.tool_name === 'AskUserQuestion' && options.answerInOffice) return holdRequest('question', sessionId, body, res);
+      if (body.tool_name !== 'AskUserQuestion') return {};
+      if (!options.askQuestions) {
+        emit({ type: 'decided_alone', agentId: body.agent_id ?? null, question: body.tool_input?.questions?.[0]?.question ?? '' });
+        return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: NO_QUESTIONS } };
+      }
+      if (options.answerInOffice) return holdRequest('question', sessionId, body, res);
       return {};
     case 'PostToolUse': {
       const msgs = takeMessages(sessionId, body.agent_id ?? null);
@@ -351,9 +367,11 @@ function send({ text, target, attachments = [], clientId }) {
   } catch (err) {
     return emit({ type: 'error', message: err.message, clientId });
   }
-  const body = files.length
+  let body = files.length
     ? `${text}\n\nEkli dosyalar (Read aracıyla açabilirsin):\n${files.map((f) => `- ${f}`).join('\n')}`
     : text;
+  // Only the main agent can ask the user: AskUserQuestion is not available inside subagents.
+  if (options.askQuestions && options.askEveryTask && !target) body += ASK_FIRST;
   const msg = { id: `m${++msgSeq}`, text: body, target: target ?? null };
   queueFor(attached.sessionId).push(msg);
   emit({ type: 'queued', id: msg.id, text, target: msg.target, clientId: clientId ?? null, files: files.map((f) => path.basename(f)), busy: attached.busy });
@@ -368,7 +386,7 @@ function hooksStatus(error) {
 async function handle(command) {
   switch (command.cmd) {
     case 'status':
-      emit({ type: 'ready', fake: FAKE, attached: attached?.sessionId ?? null, answerInOffice: options.answerInOffice });
+      emit({ type: 'ready', fake: FAKE, attached: attached?.sessionId ?? null, ...options });
       lastList = '';
       pollSessions();
       return hooksStatus();
@@ -395,8 +413,10 @@ async function handle(command) {
         return hooksStatus(err.message);
       }
     case 'set_option':
-      Object.assign(options, command.options ?? {});
-      return emit({ type: 'ready', fake: FAKE, attached: attached?.sessionId ?? null, answerInOffice: options.answerInOffice });
+      for (const key of Object.keys(options)) {
+        if (typeof command.options?.[key] === 'boolean') options[key] = command.options[key];
+      }
+      return emit({ type: 'options', ...options });
     default:
       return emit({ type: 'error', message: `Bilinmeyen komut: ${command.cmd}` });
   }
@@ -429,6 +449,6 @@ function fakeDeliver(sessionId) {
 if (FAKE) fakeModule = await import('./fake.mjs');
 
 setInterval(pollSessions, 2000);
-emit({ type: 'ready', fake: FAKE, attached: null, answerInOffice: options.answerInOffice });
+emit({ type: 'ready', fake: FAKE, attached: null, ...options });
 pollSessions();
 hooksStatus();
