@@ -103,4 +103,14 @@ export async function runDevDemo() {
   busy = false;
   hook('Stop', {});
   session.inject({ type: 'busy', busy: false });
+
+  // A second, unattached session starts waiting for a permission answer in its terminal.
+  await wait(1500);
+  session.inject({
+    type: 'sessions',
+    list: [
+      { sessionId: SID, name: 'Demo · ofis prototipi', cwd: 'C:\\Users\\Selim\\Desktop\\Claudio', status: 'idle', updatedAt: Date.now(), waiting: null },
+      { sessionId: 'demo-other', name: '', cwd: 'C:\\Users\\Selim\\code\\api', status: 'busy', updatedAt: Date.now(), waiting: 'permission' },
+    ],
+  });
 }

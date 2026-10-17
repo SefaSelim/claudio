@@ -10,6 +10,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - The office renders at 60 fps only while someone walks, 30 fps while agents sit at their desks and 12 fps when it is empty.
 
+### Added
+
+- Other Claude Code sessions that wait for a permission or a question show up in the session list, light the session button and send a notification.
+
 ## [0.5.0] - 2026-10-17
 
 Roadmap phase 5: meetings.

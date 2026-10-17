@@ -57,6 +57,9 @@ const meetingKind = (text) => {
   return t.startsWith(session.MEETING_START) || t.startsWith(session.MEETING_END) ? 'sys' : null;
 };
 
+const WAITING_LABEL = { permission: 'izin bekliyor', question: 'soru soruyor' };
+const sessionName = (x) => x.name || String(x.cwd ?? '').split(/[\\/]/).filter(Boolean).pop() || x.sessionId.slice(0, 8);
+
 const shortPath = (p) => String(p ?? '').split(/[\\/]/).filter(Boolean).slice(-2).join('/');
 
 export function createUI(scene) {
@@ -113,7 +116,12 @@ export function createUI(scene) {
   function renderDock() {
     const s = session.state;
     const dot = s.attached ? 'var(--ok)' : !s.hooksInstalled || s.error ? 'var(--warn)' : 'var(--muted)';
-    dock.querySelector('[data-open="session"] .condot').style.background = dot;
+    const condot = dock.querySelector('[data-open="session"] .condot');
+    // Another session waiting for the user outranks the connection colour.
+    const others = s.sessions.filter((x) => x.waiting && x.sessionId !== s.attached?.sessionId).length;
+    condot.style.background = others ? 'var(--s-wait)' : dot;
+    condot.classList.toggle('alert', Boolean(others));
+    dock.querySelector('[data-open="session"] .tip').textContent = others ? `Oturum · ${others} oturum seni bekliyor` : 'Oturum';
     for (const btn of dock.querySelectorAll('[data-open]')) {
       const k = btn.dataset.open;
       const on = panel && (panel.type === k || (k === 'chat' && panel.type === 'agent' && panel.id === 'main'));
@@ -253,7 +261,7 @@ export function createUI(scene) {
       ? s.sessions.map((x) => {
           const on = s.attached?.sessionId === x.sessionId;
           const busy = x.status === 'busy';
-          return `<button class="sess${on ? ' on' : ''}" data-sid="${esc(x.sessionId)}" style="--c:var(${busy ? '--s-write' : '--ok'})"><i class="dot${busy ? ' pulse' : ''}"></i><span class="grow"><b>${esc(x.name || shortPath(x.cwd) || x.sessionId.slice(0, 8))}</b><span>${esc(shortPath(x.cwd))} · ${busy ? 'çalışıyor' : 'boşta'} · ${ago(x.updatedAt)}</span></span>${on ? '<span class="st" style="--c:var(--ok)"><i class="dot"></i>bağlı</span>' : ''}</button>`;
+          return `<button class="sess${on ? ' on' : ''}" data-sid="${esc(x.sessionId)}" style="--c:var(${busy ? '--s-write' : '--ok'})"><i class="dot${busy ? ' pulse' : ''}"></i><span class="grow"><b>${esc(x.name || shortPath(x.cwd) || x.sessionId.slice(0, 8))}</b><span>${esc(shortPath(x.cwd))} · ${busy ? 'çalışıyor' : 'boşta'} · ${ago(x.updatedAt)}</span></span>${on ? '<span class="st" style="--c:var(--ok)"><i class="dot"></i>bağlı</span>' : x.waiting ? `<span class="st live" style="--c:var(--s-wait)"><i class="dot"></i>${WAITING_LABEL[x.waiting] ?? 'bekliyor'}</span>` : ''}</button>`;
         }).join('')
       : '<p class="desc">Açık Claude Code oturumu bulunamadı. Bir terminalde <code>claude</code> başlatınca burada görünür.</p>';
     const sub = s.attached ? `Bağlı: ${esc(s.attached.name || shortPath(s.attached.cwd))}` : 'Bağlanmak için bir oturum seç';
@@ -694,6 +702,19 @@ export function createUI(scene) {
     }
   }
 
+  // Other sessions that start waiting for the user get one notification each time.
+  const waitingSeen = new Set();
+  function alertWaitingSessions() {
+    const s = session.state;
+    for (const x of s.sessions) {
+      const key = `${x.sessionId}:${x.waiting}`;
+      if (!x.waiting || x.sessionId === s.attached?.sessionId) { for (const k of waitingSeen) if (k.startsWith(`${x.sessionId}:`)) waitingSeen.delete(k); continue; }
+      if (waitingSeen.has(key)) continue;
+      waitingSeen.add(key);
+      alertUser(`${sessionName(x)} ${WAITING_LABEL[x.waiting] ?? 'bekliyor'}`, 'Bu oturum ofise bağlı değil; terminalde cevapla ya da ofisi ona bağla.');
+    }
+  }
+
   // A turn that ran for a while gets a "done" notification when it ends.
   let turnStarted = 0;
   function trackTurn(busy) {
@@ -775,6 +796,8 @@ export function createUI(scene) {
         break;
       case 'sessions':
         renderBadge();
+        renderDock();
+        alertWaitingSessions();
         if (panel?.type === 'session') renderPanel();
         break;
       case 'status':
