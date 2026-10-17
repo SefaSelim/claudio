@@ -257,3 +257,4 @@ code { font-family: var(--f-mono); font-size: 11.5px; }
 .meetform .pbody { gap: 7px; }
 .meetform textarea.field { min-height: 44px; resize: none; }
 .meetform .meet-actions { padding-bottom: 10px; }
+.condot.alert { animation: ring 1.3s infinite; }

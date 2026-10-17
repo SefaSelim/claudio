@@ -20,7 +20,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { listSessions, findTranscript, TranscriptTail, subagentTranscript } from './sessions.mjs';
-import { hooksInstalled, installHooks, uninstallHooks } from './hooks-config.mjs';
+import { hooksInstalled, hooksCurrent, installHooks, uninstallHooks } from './hooks-config.mjs';
 import { BRIDGE_PORT, tokenFile, attachmentsDir } from './paths.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -61,9 +61,23 @@ const knownTranscripts = new Map(); // sessionId -> transcript_path (hook'lardan
 const isAttached = (sessionId) => attached?.sessionId === sessionId;
 
 // ---------- oturum listesi ----------
+// Sessions the office is not attached to still send hooks; remember which of them are
+// waiting for the user so the office can point at them.
+const waiting = new Map(); // sessionId -> 'permission' | 'question'
+
+function trackWaiting(sessionId, event, body) {
+  const before = waiting.get(sessionId) ?? null;
+  if (event === 'PermissionRequest') waiting.set(sessionId, 'permission');
+  else if (event === 'PreToolUse' && body.tool_name === 'AskUserQuestion') waiting.set(sessionId, 'question');
+  else if (event === 'Notification' && body.notification_type === 'permission_prompt') waiting.set(sessionId, before ?? 'permission');
+  else if (['PostToolUse', 'PostToolUseFailure', 'UserPromptSubmit', 'Stop', 'SessionEnd', 'SessionStart'].includes(event)) waiting.delete(sessionId);
+  else if (event === 'PreToolUse') waiting.delete(sessionId);
+  if ((waiting.get(sessionId) ?? null) !== before) pollSessions();
+}
+
 let lastList = '';
 function pollSessions() {
-  const list = FAKE ? fakeSessions() : listSessions();
+  const list = (FAKE ? fakeSessions() : listSessions()).map((x) => ({ ...x, waiting: isAttached(x.sessionId) ? null : waiting.get(x.sessionId) ?? null }));
   const key = JSON.stringify(list);
   if (key !== lastList) {
     lastList = key;
@@ -212,9 +226,11 @@ export async function handleHook(body, res) {
   const event = body.hook_event_name;
   if (body.transcript_path) knownTranscripts.set(sessionId, body.transcript_path);
   if (!isAttached(sessionId)) {
+    trackWaiting(sessionId, event, body);
     if (event === 'SessionStart' || event === 'SessionEnd') pollSessions();
     return {};
   }
+  waiting.delete(sessionId);
   emit({ type: 'hook', ...pick(body) });
   if (event === 'UserPromptSubmit' || event === 'PreToolUse' || event === 'PostToolUse') setBusy(true);
   if (event === 'SubagentStart' && body.agent_id) startSubagentTail(sessionId, body.agent_id);
@@ -379,6 +395,18 @@ function send({ text, target, attachments = [], clientId }) {
   if (FAKE) fakeDeliver(attached.sessionId);
 }
 
+/** Rewrite our hooks if they belong to an older install of the office. */
+function refreshHooks() {
+  if (FAKE || !hooksInstalled()) return;
+  const waiterPath = path.join(here, 'claudio-waiter.mjs');
+  if (hooksCurrent({ token: TOKEN, waiterPath })) return;
+  try {
+    installHooks({ token: TOKEN, waiterPath });
+  } catch (err) {
+    log('hook yenilenemedi', err.message);
+  }
+}
+
 function hooksStatus(error) {
   emit({ type: 'hooks_status', installed: FAKE || hooksInstalled(), error: error ?? null });
 }
@@ -389,6 +417,7 @@ async function handle(command) {
       emit({ type: 'ready', fake: FAKE, attached: attached?.sessionId ?? null, ...options });
       lastList = '';
       pollSessions();
+      refreshHooks();
       return hooksStatus();
     case 'attach':
       return attach(command.sessionId);

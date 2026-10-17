@@ -1,3 +1,4 @@
+mod autostart;
 mod position;
 mod sidecar;
 
@@ -45,6 +46,16 @@ fn sidecar_send(line: String, sidecar: tauri::State<'_, Sidecar>) -> Result<(), 
     sidecar.send(&line)
 }
 
+#[tauri::command]
+fn get_autostart() -> bool {
+    autostart::enabled()
+}
+
+#[tauri::command]
+fn set_autostart(on: bool) -> Result<(), String> {
+    autostart::set(on)
+}
+
 /// Taşıma tutamağına çift tıklanınca pencereyi sağ alta geri götürür.
 #[tauri::command]
 fn reset_position(window: WebviewWindow) -> Result<(), String> {
@@ -90,7 +101,9 @@ pub fn run() {
             set_hit_regions,
             quit_app,
             reset_position,
-            sidecar_send
+            sidecar_send,
+            get_autostart,
+            set_autostart
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::Moved(pos) = event {

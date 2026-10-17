@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Other Claude Code sessions that wait for a permission or a question show up in the session list, light the session button and send a notification.
+- "Windows ile başlat" setting that opens the office when you sign in to Windows.
+
+### Changed
+
+- The office renders at 60 fps only while someone walks, 30 fps while agents sit at their desks and 12 fps when it is empty.
+- Installed builds run the bridge from the bundled resources folder instead of the source tree.
+- The bridge rewrites its own hooks when they point at an older install of the office, so moving from the source tree to an installed build keeps working.
+
 ## [0.5.0] - 2026-10-17
 
 Roadmap phase 5: meetings.

@@ -86,6 +86,20 @@ export function installHooks({ token, waiterPath }) {
   writeSettings(settings);
 }
 
+/**
+ * True when the installed hooks carry this token and point at this waiter. They go stale
+ * when the app moves (for example from the source tree to an installed build).
+ */
+export function hooksCurrent({ token, waiterPath }) {
+  try {
+    const all = Object.values(readSettings().hooks ?? {}).flatMap((groups) => groups.flatMap((g) => g.hooks ?? [])).filter(isOurs);
+    const waiter = waiterPath.replaceAll('\\', '/');
+    return all.every((h) => (h.type === 'http' ? h.headers?.['X-Claudio-Token'] === token : String(h.command).includes(waiter)));
+  } catch {
+    return true;
+  }
+}
+
 export function uninstallHooks() {
   writeSettings(withoutOurs(readSettings()));
 }
