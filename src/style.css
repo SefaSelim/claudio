@@ -130,7 +130,24 @@ code { font-family: var(--f-mono); font-size: 11.5px; }
 .sw[aria-checked="true"] { background: var(--accent); }
 .sw[aria-checked="true"]::after { transform: translateX(16px); }
 
+.btn.small { font-size: 11.5px; padding: 5px 10px; }
+.link { border: 0; background: none; padding: 4px 2px; font-size: 11.5px; font-weight: 600; color: var(--muted); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+.link:hover { color: var(--accent); }
+
+/* oturum listesi */
+.sesslist { display: grid; gap: 6px; }
+.sess { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border-radius: 11px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; text-align: left; transition: border-color .15s, transform .12s var(--ease-out); }
+.sess:hover { border-color: var(--accent); transform: translateX(-2px); }
+.sess.on { border-color: var(--accent); background: var(--accent-soft); }
+.sess .dot { background: var(--c); }
+.sess .dot.pulse { animation: ring 1.3s infinite; }
+.sess .grow { flex: 1; min-width: 0; display: grid; }
+.sess b { font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sess .grow > span { font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
 /* sohbet ve adımlar */
+.m .dl { display: block; margin-top: 3px; font-size: 10px; opacity: .8; }
+.m.pending { opacity: .75; }
 .thread { display: flex; flex-direction: column; gap: 6px; }
 .m { font-size: 12.5px; line-height: 1.4; padding: 7px 10px; border-radius: 12px; max-width: 90%; white-space: pre-wrap; word-break: break-word; user-select: text; animation: mIn .28s var(--ease-out) both; }
 @keyframes mIn { from { opacity: 0; transform: translateY(6px); } }

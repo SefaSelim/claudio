@@ -10,15 +10,20 @@ const ICON = {
   x: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
 };
 
-const STATE_LABEL = { think: 'düşünüyor', read: 'okuyor', write: 'yazıyor', bash: 'komut çalıştırıyor', wait: 'seni bekliyor', talk: 'görev veriyor', done: 'bitti' };
+const STATE_LABEL = { think: 'düşünüyor', read: 'okuyor', write: 'yazıyor', bash: 'komut çalıştırıyor', wait: 'seni bekliyor', talk: 'görev veriyor', done: 'sıra sende' };
 const MODES = {
-  default: { label: 'Sor', badge: 'İzin: her şeyi sor', color: 'var(--ok)', desc: 'Dosya düzenleme ve komutlar için her seferinde izin istenir.' },
-  acceptEdits: { label: 'Düzenle', badge: 'İzin: düzenlemeler otomatik', color: 'var(--s-read)', desc: 'Dosya düzenlemeleri otomatik onaylanır, komutlar için izin istenir.' },
-  plan: { label: 'Plan', badge: 'Plan modu', color: 'var(--s-plan)', desc: 'Ajanlar sadece okur ve plan yazar; hiçbir dosya değişmez.' },
-  bypassPermissions: { label: 'Atla', badge: 'İzinler atlanıyor', color: 'var(--warn)', desc: 'Tüm araçlar onaysız çalışır. Yalnızca güvendiğin projede kullan.', warn: true },
+  default: { label: 'Her şeyi sor', color: 'var(--ok)' },
+  acceptEdits: { label: 'Düzenlemeler otomatik', color: 'var(--s-read)' },
+  plan: { label: 'Plan modu', color: 'var(--s-plan)' },
+  auto: { label: 'Otomatik mod', color: 'var(--s-talk)' },
+  dontAsk: { label: 'Sormadan reddet', color: 'var(--muted)' },
+  bypassPermissions: { label: 'İzinler atlanıyor', color: 'var(--warn)' },
 };
-
-const prefs = { mode: 'default', ask: true };
+const ago = (ms) => {
+  const m = Math.round((Date.now() - ms) / 60000);
+  return m < 1 ? 'şimdi' : m < 60 ? `${m} dk önce` : `${Math.round(m / 60)} sa önce`;
+};
+const shortPath = (p) => String(p ?? '').split(/[\\/]/).filter(Boolean).slice(-2).join('/');
 
 export function createUI(scene) {
   const requestsEl = $('requests');
@@ -27,7 +32,7 @@ export function createUI(scene) {
   const tagsEl = $('tags');
   const badge = $('modebadge');
   let panel = null; // { type, id? }
-  let wasRunning = false;
+  let wasAttached = null;
 
   // ---------- ajan etiketleri ----------
   const tags = new Map(); // id -> { el, bubbleTimer }
@@ -67,13 +72,12 @@ export function createUI(scene) {
       tag.el.style.top = `${p.y}px`;
     }
   });
-
   scene.onPick((id) => openPanel({ type: 'agent', id }));
 
-  // ---------- yan çubuk ----------
+  // ---------- yan çubuk ve rozet ----------
   function renderDock() {
     const s = session.state;
-    const dot = s.running ? 'var(--ok)' : s.authRequired || s.error ? 'var(--warn)' : 'var(--muted)';
+    const dot = s.attached ? 'var(--ok)' : !s.hooksInstalled || s.error ? 'var(--warn)' : 'var(--muted)';
     dock.querySelector('[data-open="session"] .condot').style.background = dot;
     for (const btn of dock.querySelectorAll('[data-open]')) {
       const k = btn.dataset.open;
@@ -95,14 +99,21 @@ export function createUI(scene) {
     const btn = e.target.closest('[data-open]');
     if (!btn) return;
     const type = btn.dataset.open;
-    if (type === 'chat') openPanel({ type: 'agent', id: 'main' });
+    if (type === 'chat') openPanel(session.state.attached ? { type: 'agent', id: 'main' } : { type: 'session' });
     else openPanel({ type });
   });
 
   function renderBadge() {
-    const m = MODES[session.state.mode] ?? MODES.default;
-    badge.style.setProperty('--mc', m.color);
-    const label = session.state.running ? m.badge : 'Oturum kapalı';
+    const s = session.state;
+    let label = 'Bağlı değil';
+    let color = 'var(--muted)';
+    if (s.attached) {
+      const m = MODES[s.mode];
+      label = `${s.attached.name || 'Oturum'}${m ? ` · ${m.label}` : ''}`;
+      color = m?.color ?? 'var(--ok)';
+    }
+    if (label.length > 46) label = label.slice(0, 45) + '…';
+    badge.style.setProperty('--mc', color);
     if (badge.lastChild.textContent !== label) {
       badge.lastChild.textContent = label;
       badge.classList.remove('swap');
@@ -115,7 +126,7 @@ export function createUI(scene) {
   function openPanel(next) {
     const same = panel && next && panel.type === next.type && panel.id === next.id;
     panel = same ? null : next;
-    if (panel?.type === 'agent' && !session.state.agents.has(panel.id) && panel.id !== 'main') panel = null;
+    if (panel?.type === 'agent' && !session.state.agents.has(panel.id)) panel = null;
     scene.select(panel?.type === 'agent' ? panel.id : null);
     renderPanel(true);
     renderDock();
@@ -130,67 +141,81 @@ export function createUI(scene) {
     renderRequests();
   }
 
-  function head(title, sub, extra = '', avatar = false) {
-    return `<div class="ph">${avatar ? '<div class="av"><i></i></div>' : ''}<div class="t"><h3>${title}</h3><div class="s">${sub}</div></div>${extra}<button class="x" data-close aria-label="Kapat">${ICON.x}</button></div>`;
-  }
+  const head = (title, sub, extra = '', avatar = false) =>
+    `<div class="ph">${avatar ? '<div class="av"><i></i></div>' : ''}<div class="t"><h3>${title}</h3><div class="s">${sub}</div></div>${extra}<button class="x" data-close aria-label="Kapat">${ICON.x}</button></div>`;
 
-  function composer(id, placeholder, disabled) {
-    return `<form class="composer" id="${id}"><input placeholder="${esc(placeholder)}" autocomplete="off" aria-label="${esc(placeholder)}" ${disabled ? 'disabled' : ''}><button class="send" type="submit" aria-label="Gönder" ${disabled ? 'disabled' : ''}>${ICON.send}</button></form>`;
-  }
+  const composer = (placeholder, disabled) =>
+    `<form class="composer" id="msgForm"><input placeholder="${esc(placeholder)}" autocomplete="off" aria-label="${esc(placeholder)}" ${disabled ? 'disabled' : ''}><button class="send" type="submit" aria-label="Gönder" ${disabled ? 'disabled' : ''}>${ICON.send}</button></form>`;
 
   function renderPanel(animate = false) {
     if (!panel) { panelEl.innerHTML = ''; return; }
-    const s = session.state;
     let html = '';
-    if (panel.type === 'session') html = sessionPanel(s);
-    if (panel.type === 'settings') html = settingsPanel(s);
-    if (panel.type === 'agent') html = agentPanel(s);
+    if (panel.type === 'session') html = sessionPanel();
+    if (panel.type === 'settings') html = settingsPanel();
+    if (panel.type === 'agent') html = agentPanel();
     panelEl.innerHTML = `<div class="card panel" data-hit${animate ? '' : ' style="animation:none"'}>${html}</div>`;
     wirePanel();
   }
 
-  function sessionPanel(s) {
-    if (s.running) {
-      return head('Bağlı oturum', esc(s.cwd), '<span class="st live" style="--c:var(--ok)"><i class="dot"></i>açık</span>') +
-        `<div class="pbody"><div class="kv"><span>Model</span><b>${esc(s.model || '…')}</b></div><div class="kv"><span>İzin modu</span><b>${esc(MODES[s.mode]?.label ?? s.mode)}</b></div><div class="kv"><span>Ajanlar</span><b>${s.agents.size}</b></div>` +
-        `<div class="row"><button class="btn ghost" data-act="interrupt">Durdur</button><button class="btn ghost" data-act="stop">Oturumu kapat</button></div></div>`;
+  function hooksBlock(s) {
+    if (s.fake) return '<div class="note">Demo modu: hook kurulumu gerekmez.</div>';
+    if (s.hooksInstalled) {
+      return '<div class="row"><span class="desc">Claude Code bağlantısı kurulu.</span><button class="btn ghost small" data-act="uninstall">Kaldır</button></div>';
     }
-    const auth = !s.hasCredentials || s.authRequired;
-    return head('Oturum başlat', 'Ofis yeni bir Claude oturumu açar') +
-      `<form class="pbody" id="startForm">` +
-      (auth ? `<div class="note warn"><b>API anahtarı gerekli.</b> Agent SDK ile yapılan uygulamalar claude.ai girişini kullanamıyor. Claude Console'dan bir anahtar al, PowerShell'de <code>setx ANTHROPIC_API_KEY "anahtar"</code> çalıştır, terminali ve ofisi kapatıp yeniden aç.</div>` : '') +
-      `<label class="f"><span class="lbl">Proje klasörü</span><input class="field" id="cwd" value="${esc(s.cwd || s.defaultCwd)}" autocomplete="off"></label>` +
-      `<label class="f"><span class="lbl">İlk mesaj</span><textarea class="field" id="prompt" rows="3" placeholder="Bugün ne yapalım?"></textarea></label>` +
-      `<span class="lbl">İzin modu</span>${modeSeg(prefs.mode)}<p class="desc ${MODES[prefs.mode].warn ? 'warn' : ''}" id="modeDesc">${esc(MODES[prefs.mode].desc)}</p>` +
-      `<div class="row"><span class="desc">Ajanlar soru sorsun</span><button type="button" class="sw" role="switch" id="askSw" aria-checked="${prefs.ask}" aria-label="Ajanlar soru sorsun"></button></div>` +
-      `<button class="btn" type="submit" id="startBtn" ${auth ? 'disabled' : ''}>Oturumu başlat</button></form>`;
+    return `<div class="note warn"><b>Önce bağlantıyı kur.</b> Ofis, <code>~/.claude/settings.json</code> dosyasına kendi hook'larını ekler (önce yedek alır). Bu hook'lar bütün Claude Code oturumlarında çalışır; ofis kapalıyken hiçbir şeyi engellemez.${s.hooksError ? `<br><b>Hata:</b> ${esc(s.hooksError)}` : ''}</div>` +
+      '<button class="btn" data-act="install">Bağlantıyı kur</button>';
   }
 
-  function settingsPanel(s) {
-    const mode = s.running ? s.mode : prefs.mode;
-    return head('Ayarlar', s.running ? 'Bağlı oturuma anında uygulanır' : 'Sonraki oturumda geçerli') +
-      `<div class="pbody"><span class="lbl">İzin modu</span>${modeSeg(mode)}<p class="desc ${MODES[mode]?.warn ? 'warn' : ''}" id="modeDesc">${esc(MODES[mode]?.desc ?? '')}</p>` +
-      `<div class="row"><div><b>Ajanlar soru sorsun</b><p class="desc">Çoktan seçmeli sorularla işi şekillendirirsin. Yeni oturumda geçerli olur.</p></div><button class="sw" role="switch" id="askSw" aria-checked="${prefs.ask}" aria-label="Ajanlar soru sorsun"></button></div></div>`;
+  function sessionPanel() {
+    const s = session.state;
+    const list = s.sessions.length
+      ? s.sessions.map((x) => {
+          const on = s.attached?.sessionId === x.sessionId;
+          const busy = x.status === 'busy';
+          return `<button class="sess${on ? ' on' : ''}" data-sid="${esc(x.sessionId)}" style="--c:var(${busy ? '--s-write' : '--ok'})"><i class="dot${busy ? ' pulse' : ''}"></i><span class="grow"><b>${esc(x.name || shortPath(x.cwd) || x.sessionId.slice(0, 8))}</b><span>${esc(shortPath(x.cwd))} · ${busy ? 'çalışıyor' : 'boşta'} · ${ago(x.updatedAt)}</span></span>${on ? '<span class="st" style="--c:var(--ok)"><i class="dot"></i>bağlı</span>' : ''}</button>`;
+        }).join('')
+      : '<p class="desc">Açık Claude Code oturumu bulunamadı. Bir terminalde <code>claude</code> başlatınca burada görünür.</p>';
+    const sub = s.attached ? `Bağlı: ${esc(s.attached.name || shortPath(s.attached.cwd))}` : 'Bağlanmak için bir oturum seç';
+    return head('Claude Code oturumları', sub) +
+      `<div class="pbody">${hooksBlock(s)}<span class="lbl">Açık oturumlar</span><div class="sesslist">${list}</div>` +
+      (s.attached ? '<button class="btn ghost" data-act="detach">Bağlantıyı kes</button>' : '') +
+      (s.error ? `<p class="desc warn">${esc(s.error)}</p>` : '') + '</div>';
   }
 
-  function modeSeg(active) {
-    return `<div class="seg" id="modeSeg"><span class="ind"></span>${Object.entries(MODES).map(([k, m]) => `<button type="button" data-v="${k}" aria-pressed="${k === active}">${m.label}</button>`).join('')}</div>`;
+  function settingsPanel() {
+    const s = session.state;
+    const m = MODES[s.mode];
+    return head('Ayarlar', s.attached ? esc(s.attached.name || 'Bağlı oturum') : 'Bağlı oturum yok') +
+      `<div class="pbody">` +
+      `<div class="row"><div><b>İzinleri ve soruları ofisten cevapla</b><p class="desc">Açıkken izin istekleri ve AskUserQuestion önce burada görünür. Kapalıyken terminalde cevaplanır.</p></div><button class="sw" role="switch" id="answerSw" aria-checked="${s.answerInOffice}" aria-label="Ofisten cevapla"></button></div>` +
+      `<div class="kv"><span>Oturumun izin modu</span><b>${esc(m?.label ?? s.mode ?? 'bilinmiyor')}</b></div>` +
+      `<p class="desc">İzin modunu terminalde Shift+Tab ile değiştirebilirsin. Bir izin kartında "düzenlemeleri otomatik onayla" seçersen oturum o moda geçer.</p>` +
+      `</div>`;
   }
 
-  function agentPanel(s) {
-    const agent = s.agents.get(panel.id) ?? { id: 'main', label: 'Claude', type: 'main', state: 'done', steps: [] };
-    const sub = agent.kind === 'sub' ? esc(agent.description || agent.type) : 'Ana ajan';
-    const state = `<span class="st live" style="--c:var(--s-${agent.state})" id="agentState"><i class="dot"></i><span>${STATE_LABEL[agent.state] ?? agent.state}</span></span>`;
-    const body = panel.id === 'main' ? '<div class="thread" id="thread"></div>' : '<div class="steps" id="steps"></div>';
-    const placeholder = panel.id === 'main' ? "Claude'a yaz…" : `${agent.label}'a yaz (Claude iletir)…`;
-    return head(esc(agent.label), sub, state, true) + `<div class="pbody scroll" id="pbody">${body}</div>` + composer('msgForm', placeholder, !s.running);
+  function agentPanel() {
+    const s = session.state;
+    const agent = s.agents.get(panel.id);
+    const isMain = panel.id === 'main';
+    const sub = isMain ? esc(s.attached?.name || 'Ana ajan') : esc(agent.description || agent.type);
+    const st = `<span class="st live" style="--c:var(--s-${agent.state})" id="agentState"><i class="dot"></i><span>${STATE_LABEL[agent.state] ?? agent.state}</span></span>`;
+    const body = isMain ? '<div class="thread" id="thread"></div>' : '<div class="steps" id="steps"></div>';
+    const placeholder = isMain ? "Claude'a yaz…" : `${agent.label}'a yaz (bir sonraki adımında görür)…`;
+    return head(esc(agent.label), sub, st, true) + `<div class="pbody scroll" id="pbody">${body}</div>` + composer(placeholder, !s.attached);
   }
 
   function renderThread() {
     const el = $('thread');
     if (!el) return;
-    el.innerHTML = session.state.chat.map((m) => `<div class="m ${m.role === 'user' ? 'me' : m.role === 'system' ? 'sys' : 'ag'}">${esc(m.text)}</div>`).join('') ||
-      '<div class="m sys">Henüz mesaj yok.</div>';
+    const items = session.state.chat;
+    el.innerHTML = items.length
+      ? items.map((m) => {
+          const cls = m.role === 'user' ? 'me' : m.role === 'system' ? 'sys' : 'ag';
+          const status = m.role === 'user' && (m.pending || m.via)
+            ? `<span class="dl">${m.pending ? 'iletilmeyi bekliyor…' : `iletildi · ${esc(m.via)}`}</span>` : '';
+          return `<div class="m ${cls}${m.pending ? ' pending' : ''}">${esc(m.text)}${status}</div>`;
+        }).join('')
+      : '<div class="m sys">Henüz mesaj yok.</div>';
     const body = $('pbody');
     if (body) body.scrollTop = body.scrollHeight;
   }
@@ -198,8 +223,7 @@ export function createUI(scene) {
   function renderSteps() {
     const el = $('steps');
     if (!el) return;
-    const agent = session.state.agents.get(panel.id);
-    const steps = agent?.steps ?? [];
+    const steps = session.state.agents.get(panel.id)?.steps ?? [];
     el.innerHTML = steps.length
       ? steps.slice(-20).map((st) => `<div class="step ${st.status}"><span class="tm">${st.time}</span><span>${esc(st.detail)}</span></div>`).join('')
       : '<div class="m sys">Henüz adım yok.</div>';
@@ -211,38 +235,25 @@ export function createUI(scene) {
     const root = panelEl.firstElementChild;
     if (!root) return;
     root.querySelector('[data-close]').addEventListener('click', closePanel);
-
-    const seg = $('modeSeg');
-    if (seg) segInit(seg, (mode) => {
-      const m = MODES[mode];
-      const d = $('modeDesc');
-      d.textContent = m.desc;
-      d.classList.toggle('warn', Boolean(m.warn));
-      prefs.mode = mode;
-      if (session.state.running && panel.type === 'settings') session.setMode(mode);
-    });
-    const sw = $('askSw');
-    if (sw) sw.addEventListener('click', () => {
-      prefs.ask = !prefs.ask;
-      sw.setAttribute('aria-checked', prefs.ask);
-    });
-
-    const start = $('startForm');
-    if (start) {
-      start.addEventListener('submit', (e) => {
-        e.preventDefault();
-        const prompt = $('prompt').value.trim();
-        if (!prompt) return $('prompt').focus();
-        $('startBtn').disabled = true;
-        session.startSession({ cwd: $('cwd').value.trim(), prompt, permissionMode: prefs.mode, ask: prefs.ask });
-      });
-      setTimeout(() => $('prompt')?.focus({ preventScroll: true }), 60);
-    }
-
     for (const btn of root.querySelectorAll('[data-act]')) {
-      btn.addEventListener('click', () => (btn.dataset.act === 'stop' ? session.stopSession() : session.interrupt()));
+      btn.addEventListener('click', () => {
+        const act = btn.dataset.act;
+        if (act === 'install') { btn.disabled = true; session.installHooks(); }
+        if (act === 'uninstall') session.uninstallHooks();
+        if (act === 'detach') session.detach();
+      });
     }
-
+    for (const btn of root.querySelectorAll('[data-sid]')) {
+      btn.addEventListener('click', () => {
+        if (session.state.attached?.sessionId !== btn.dataset.sid) session.attach(btn.dataset.sid);
+      });
+    }
+    const sw = $('answerSw');
+    if (sw) sw.addEventListener('click', () => {
+      const value = !session.state.answerInOffice;
+      sw.setAttribute('aria-checked', value);
+      session.setAnswerInOffice(value);
+    });
     const msg = $('msgForm');
     if (msg) {
       msg.addEventListener('submit', (e) => {
@@ -252,33 +263,12 @@ export function createUI(scene) {
         if (!text) return;
         input.value = '';
         session.sendMessage(text, panel.id);
-        if (panel.id !== 'main') sayBubble(panel.id, 'Mesajın Claude üzerinden iletiliyor');
+        if (panel.id !== 'main') sayBubble(panel.id, 'Mesajın bir sonraki adımımda bana ulaşacak');
       });
       setTimeout(() => msg.querySelector('input:not([disabled])')?.focus({ preventScroll: true }), 60);
     }
     renderThread();
     renderSteps();
-  }
-
-  function segInit(seg, onPick) {
-    const ind = seg.querySelector('.ind');
-    const buttons = [...seg.querySelectorAll('button')];
-    const place = () => {
-      const on = buttons.find((b) => b.getAttribute('aria-pressed') === 'true') ?? buttons[0];
-      ind.style.width = `${on.offsetWidth}px`;
-      ind.style.transform = `translateX(${on.offsetLeft - 3}px)`;
-    };
-    ind.style.transition = 'none';
-    place();
-    requestAnimationFrame(() => { ind.style.transition = ''; });
-    for (const b of buttons) {
-      b.addEventListener('click', () => {
-        if (b.getAttribute('aria-pressed') === 'true') return;
-        for (const x of buttons) x.setAttribute('aria-pressed', x === b);
-        place();
-        onPick(b.dataset.v);
-      });
-    }
   }
 
   // ---------- izin ve soru kartları ----------
@@ -301,7 +291,7 @@ export function createUI(scene) {
     visible.reverse().forEach((req, i) => {
       let el = existing.get(req.requestId);
       if (!el) {
-        el = req.toolName === 'AskUserQuestion' ? questionCard(req) : permissionCard(req);
+        el = req.kind === 'question' ? questionCard(req) : permissionCard(req);
         el.style.setProperty('--i', i);
       } else {
         el.style.animation = 'none';
@@ -310,9 +300,8 @@ export function createUI(scene) {
     });
   }
 
-  function agentLabel(id) {
-    return session.state.agents.get(id)?.label ?? 'Claude';
-  }
+  const agentLabel = (id) => session.state.agents.get(id)?.label ?? 'Claude';
+  const EDIT_TOOLS = new Set(['Edit', 'MultiEdit', 'Write', 'NotebookEdit']);
 
   function permissionCard(req) {
     const el = document.createElement('div');
@@ -324,12 +313,18 @@ export function createUI(scene) {
     el.innerHTML =
       `<div class="qh"><span class="mini-av"></span>${esc(agentLabel(req.agentId))} izin istiyor</div>` +
       `<div class="q">${esc(req.toolName)}</div><pre>${esc(detail)}</pre>` +
-      (req.reason ? `<p class="desc">${esc(req.reason)}</p>` : '') +
-      `<div class="row start"><button class="btn" data-a="allow">İzin ver</button><button class="btn ghost" data-a="deny">Reddet</button></div>`;
+      `<div class="row start"><button class="btn" data-a="allow">İzin ver</button><button class="btn ghost" data-a="deny">Reddet</button>` +
+      (EDIT_TOOLS.has(req.toolName) ? '<button class="btn ghost" data-a="edits">İzin ver + düzenlemeleri otomatik onayla</button>' : '') +
+      `<button class="link" data-a="terminal">Terminalde cevapla</button></div>`;
     el.addEventListener('click', (e) => {
       const b = e.target.closest('[data-a]');
       if (!b) return;
-      leave(el, () => session.answerRequest(req.requestId, b.dataset.a === 'allow' ? { behavior: 'allow' } : { behavior: 'deny', message: 'Kullanıcı ofisten reddetti.' }));
+      const a = b.dataset.a;
+      const result = a === 'allow' ? { behavior: 'allow' }
+        : a === 'edits' ? { behavior: 'allow', mode: 'acceptEdits' }
+        : a === 'terminal' ? { behavior: 'terminal' }
+        : { behavior: 'deny' };
+      leave(el, () => session.answerRequest(req.requestId, result));
     });
     return el;
   }
@@ -345,10 +340,10 @@ export function createUI(scene) {
     el.innerHTML =
       `<div class="qh"><span class="mini-av"></span>${esc(agentLabel(req.agentId))} soruyor</div>` +
       questions.map((q, qi) =>
-        `<div class="qblock" data-q="${qi}">${q.header ? `<span class="chip-h">${esc(q.header)}</span>` : ''}<div class="q">${esc(q.question)}</div>` +
+        `<div class="qblock">${q.header ? `<span class="chip-h">${esc(q.header)}</span>` : ''}<div class="q">${esc(q.question)}</div>` +
         `<div class="opts">${(q.options ?? []).map((o, oi) => `<button type="button" class="opt" data-q="${qi}" data-o="${oi}"><b>${esc(o.label)}</b>${o.description ? `<span>${esc(o.description)}</span>` : ''}</button>`).join('')}</div>` +
         `<input class="field other" data-q="${qi}" placeholder="Başka bir cevap…" autocomplete="off"></div>`).join('') +
-      `<div class="row start"><button class="btn" data-send disabled>Gönder</button><button class="btn ghost" data-skip>Cevaplamadan geç</button></div>`;
+      `<div class="row start"><button class="btn" data-send disabled>Gönder</button><button class="link" data-terminal>Terminalde cevapla</button></div>`;
     const sendBtn = el.querySelector('[data-send]');
     const refresh = () => {
       el.querySelectorAll('.opt').forEach((b) => b.classList.toggle('picked', picks[b.dataset.q].has(Number(b.dataset.o))));
@@ -362,13 +357,13 @@ export function createUI(scene) {
         else { picks[qi].clear(); picks[qi].add(oi); }
         refresh();
       }
-      if (e.target.closest('[data-skip]')) leave(el, () => session.answerRequest(req.requestId, { behavior: 'deny', message: 'Kullanıcı soruyu cevaplamadı; makul olanı seç.' }));
+      if (e.target.closest('[data-terminal]')) leave(el, () => session.answerRequest(req.requestId, { behavior: 'terminal' }));
       if (e.target.closest('[data-send]') && !sendBtn.disabled) {
         const answers = {};
         questions.forEach((q, qi) => {
           answers[q.question] = custom[qi] || [...picks[qi]].map((oi) => q.options[oi].label).join(', ');
         });
-        leave(el, () => session.answerRequest(req.requestId, { behavior: 'allow', updatedInput: { questions, answers } }));
+        leave(el, () => session.answerRequest(req.requestId, { behavior: 'allow', answers }));
       }
     });
     el.addEventListener('input', (e) => {
@@ -385,7 +380,7 @@ export function createUI(scene) {
     setTimeout(then, 200);
   }
 
-  // ---------- oturum olayları ----------
+  // ---------- olaylar ----------
   session.subscribe((change) => {
     switch (change.kind) {
       case 'agent_added':
@@ -422,15 +417,21 @@ export function createUI(scene) {
         renderRequests();
         renderDock();
         break;
+      case 'sessions':
+        renderBadge();
+        if (panel?.type === 'session') renderPanel();
+        break;
       case 'status':
       case 'error': {
         renderDock();
         renderBadge();
-        const justStarted = session.state.running && !wasRunning;
-        wasRunning = session.state.running;
-        // Oturum açılınca sohbet paneline geç; ilk yanıt orada görünür.
-        if (justStarted) { panel = { type: 'agent', id: 'main' }; renderPanel(true); renderDock(); }
-        else if (panel) renderPanel();
+        const id = session.state.attached?.sessionId ?? null;
+        const justAttached = id && id !== wasAttached;
+        wasAttached = id;
+        // Bağlanınca sohbet paneline geç; geçmiş orada görünür.
+        if (justAttached) { panel = { type: 'agent', id: 'main' }; scene.select('main'); renderPanel(true); renderDock(); }
+        else if (panel?.type === 'agent' && !session.state.agents.has(panel.id)) closePanel();
+        else if (panel && panel.type !== 'agent') renderPanel();
         break;
       }
     }
