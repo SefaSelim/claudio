@@ -93,7 +93,10 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::Moved(pos) = event {
-                window.state::<PendingMove>().record(*pos);
+                // Küçültülmüş pencere Windows'ta (-32000, -32000) civarına taşınır; bunu kaydetme.
+                if !window.is_minimized().unwrap_or(false) && pos.x > -10_000 && pos.y > -10_000 {
+                    window.state::<PendingMove>().record(*pos);
+                }
             }
         })
         .setup(move |app| {
