@@ -2,7 +2,7 @@
 
 Claude Code ajanlarını masaüstünün sağ altında, her şeyin üstünde duran küçük bir 3D ofiste gösteren masaüstü uygulaması. Tauri 2 + three.js.
 
-Tasarım ve yol haritası: https://claude.ai/artifact/G8Fc75oiVbtYyUCbwLJZLQ · Sürüm geçmişi: [CHANGELOG.md](CHANGELOG.md)
+Tasarım ve yol haritası: https://claude.ai/artifact/G8Fc75oiVbtYyUCbwLJZLQ · Sürüm geçmişi: [CHANGELOG.md](CHANGELOG.md) · **Nasıl kullanılır:** [docs/KULLANIM.md](docs/KULLANIM.md) · Yol haritası: [docs/plan-v1.md](docs/plan-v1.md)
 
 ## Neler yapar
 
@@ -11,6 +11,7 @@ Tasarım ve yol haritası: https://claude.ai/artifact/G8Fc75oiVbtYyUCbwLJZLQ · 
 - **İzin ve sorular:** izin istekleri ve `AskUserQuestion` ofisin üstünde kart olarak açılır. "Bu oturumda hep izin ver", "düzenlemeleri otomatik onayla" ve "Terminalde cevapla" seçenekleri var.
 - **Toplantı:** yan çubuktaki **Toplantı** düğmesi konu ve katılımcı sorar. Katılımcılar toplantı odasına yürür, Claude masanın başına geçer. Toplantı sırasında araya girilebilir; Claude karar gereken yerlerde soru sorar ve sonunda bir özet yazar. Özet kapatılana kadar ekranda kalır.
 - **Diğer oturumlar:** ofisin bağlı olmadığı bir oturum izin ya da soru beklerse oturum listesinde işaretlenir, yan çubuktaki oturum düğmesi yanıp söner ve bildirim gelir.
+- **Ekip ve görevler:** bağlı projede kullanılabilen ajanlar, beceriler ve komutlar; birine tek satırla görev verilebilir. Oturumun görev listesi panelde ve toplantı odasındaki tahtada post-it olarak görünür.
 - **Ayarlar:** ofisten cevaplama, ajanların soru sorması, her yeni görevde sorma, Windows bildirimleri, ses ve Windows ile başlatma.
 
 ## Claude Code'a bağlanma
