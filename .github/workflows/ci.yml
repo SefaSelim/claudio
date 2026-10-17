@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  bridge-and-frontend:
+    name: Bridge tests and frontend build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Check sidecar syntax
+        run: for f in sidecar/*.mjs; do node --check "$f"; done
+      - run: npm test
+      - run: npx vite build
+
+  shell:
+    name: Rust shell
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+      - run: npm ci
+      # tauri-build expects the frontend bundle to exist.
+      - run: npx vite build
+      - name: cargo check
+        working-directory: src-tauri
+        run: cargo check --locked
