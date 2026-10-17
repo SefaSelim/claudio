@@ -43,6 +43,20 @@ Yukarıdan aşağıya:
   - Claude boştaysa ofis onu uyandırır.
 - **Resim ve dosya:** ataç düğmesi, Ctrl+V ile yapıştırma ya da sürükle-bırak. Claude dosyaları kendi açar.
 - **Hızlı komutlar:** yazı kutusunun üstündeki küçük düğmeler ("Ne yapıyorsun?", "Durum özeti", "Bitince dur").
+- **"Sen" karakteri:** bağlıyken mavi keçe bir karakter puf minderin yanında bekler. Ofisten bir mesaj gönderince mesajı Claude'un ya da alt ajanın masasına götürür ve geri döner. Ayarlar'da "Beni ofiste göster" ile kapatılabilir.
+- **Ofis komutları:** Claude'un sohbetinde eğik çizgiyle başlayan bu komutlar Claude'a gitmez, ofiste çalışır:
+
+  | Komut | Ne yapar |
+  |---|---|
+  | `/durum` | Claude'un durumu, alt ajanlar, görevler, bağlam ve bekleyen istekler |
+  | `/ajanlar` | Ofisteki ajanlar ve ne yaptıkları |
+  | `/görevler` | Görev listesini açar |
+  | `/toplantı konu` | Konusu doldurulmuş toplantı panelini açar |
+  | `/alarm sebep` | Alarmı elle başlatır; `/alarm-bitti` kapatır |
+  | `/temizle` | Ofisteki sohbet görünümünü temizler (oturuma dokunmaz) |
+  | `/yardım` | Bu liste |
+
+  Başka eğik çizgili mesajlar Claude'a düz metin olarak gider; Claude Code'un kendi komutları terminalde çalışır.
 - **Adımlar** sekmesi ajanın kullandığı araçları, başarısız olanları kırmızıyla, toplam süreyi ve biten alt ajanın modelini ve token sayısını gösterir.
 
 ## 5. Alt ajanlar

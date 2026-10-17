@@ -36,6 +36,18 @@ const sourceLabel = (s) => SOURCE_LABEL[s] ?? (String(s).startsWith('plugin:') ?
 // Props over a character while a deploy, build, test run or push is running, and how it ended.
 const SIGNAL_ICON = { deploy: '🚀', build: '🔨', test: '🧪', push: '⬆️' };
 const signalIcon = (sig) => (!sig || sig.state === 'none' ? '' : sig.state === 'ok' ? '✅' : sig.state === 'fail' ? '❌' : SIGNAL_ICON[sig.kind] ?? '');
+// Office-only chat commands. Anything else that starts with "/" goes to Claude as text.
+const SLASH_HELP = [
+  ['/durum', 'oturumun kısa özeti'],
+  ['/ajanlar', 'ofisteki ajanlar ve ne yaptıkları'],
+  ['/görevler', 'görev listesini aç'],
+  ['/toplantı [konu]', 'toplantı ayarla'],
+  ['/alarm [sebep]', 'alarmı elle başlat'],
+  ['/alarm-bitti', 'alarmı kapat'],
+  ['/temizle', 'ofisteki sohbet görünümünü temizle'],
+  ['/yardım', 'bu liste'],
+];
+const SHOW_YOU_KEY = 'claudio.showYou';
 const TASK_LABEL = { pending: 'Yapılacak', in_progress: 'Sürüyor', completed: 'Bitti' };
 const fmtTokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
 const fmtDuration = (ms) => {
@@ -357,11 +369,71 @@ export function createUI(scene) {
       `<div class="row"><div><b>Windows bildirimleri</b><p class="desc">İzin ve soru geldiğinde, uzun bir tur bittiğinde.</p></div><button class="sw" role="switch" id="notifySw" aria-checked="${alerts.notify}" aria-label="Windows bildirimleri"></button></div>` +
       `<div class="row"><div><b>Windows ile başlat</b><p class="desc">Oturum açınca ofis kendiliğinden açılır.</p></div><button class="sw" role="switch" id="autoSw" aria-checked="${autostart === true}" aria-label="Windows ile başlat" ${autostart === null ? 'disabled' : ''}></button></div>` +
       diagnosticsBlock() +
+      `<div class="row"><div><b>Beni ofiste göster</b><p class="desc">Ofisten yazdığın her mesajı "Sen" karakteri alıcının masasına götürür.</p></div><button class="sw" role="switch" id="youSw" aria-checked="${showYou}" aria-label="Beni ofiste göster"></button></div>` +
       `<div class="row"><div><b>Ses</b><p class="desc">Aynı anlarda kısa bir zil sesi.</p></div><button class="sw" role="switch" id="soundSw" aria-checked="${alerts.sound}" aria-label="Ses"></button></div>` +
       `</div>`;
   }
 
   const alerts = loadAlertPrefs();
+  let showYou = true;
+  try { showYou = localStorage.getItem(SHOW_YOU_KEY) !== 'false'; } catch { /* storage blocked */ }
+
+  /** The user's own character: present while attached and switched on. */
+  function syncYou() {
+    const want = showYou && Boolean(session.state.attached);
+    if (want && !tags.has('you')) {
+      scene.addYou();
+      const tag = tagFor({ id: 'you', label: 'Sen', state: 'done' });
+      tag.el.classList.add('you');
+    } else if (!want && tags.has('you')) {
+      scene.removeYou();
+      tags.get('you').el.remove();
+      tags.delete('you');
+    }
+  }
+
+  /** Office-only slash commands; true when the text was one. */
+  function slashCommand(text) {
+    const m = /^\/(\S+)\s*([\s\S]*)$/.exec(text);
+    if (!m) return false;
+    const [, name, arg] = m;
+    const s = session.state;
+    const cmd = name.toLocaleLowerCase('tr');
+    if (cmd === 'yardım' || cmd === 'yardim' || cmd === 'help') {
+      session.systemNote(`Ofis komutları:\n${SLASH_HELP.map(([c, d]) => `${c} · ${d}`).join('\n')}\nDiğer eğik çizgili mesajlar Claude'a düz metin olarak gider.`);
+    } else if (cmd === 'durum' || cmd === 'status') {
+      const subs = [...s.agents.values()].filter((a) => a.kind === 'sub');
+      const done = s.tasks.filter((t) => t.status === 'completed').length;
+      const main = s.agents.get('main');
+      session.systemNote([
+        `Claude ${main ? stateLabel(main) : 'yok'}${s.busy ? ' · tur sürüyor' : ''}`,
+        `${subs.length} alt ajan${subs.length ? `: ${subs.map((a) => a.label).join(', ')}` : ''}`,
+        s.tasks.length ? `görevler: ${done} / ${s.tasks.length} bitti` : 'görev listesi boş',
+        s.usage ? `bağlam %${s.usage.percent} · ${fmtTokens(s.usage.perMinute)} token/dk` : null,
+        s.requests.length ? `${s.requests.length} istek seni bekliyor` : null,
+        s.alarm ? `alarm açık: ${s.alarm.cause}` : null,
+      ].filter(Boolean).join('\n'));
+    } else if (cmd === 'ajanlar' || cmd === 'agents') {
+      const list = [...s.agents.values()].map((a) => `${a.label} · ${stateLabel(a)}${a.text ? ` · ${a.text}` : ''}`);
+      session.systemNote(list.length ? list.join('\n') : 'Ofiste kimse yok.');
+    } else if (cmd === 'görevler' || cmd === 'gorevler' || cmd === 'tasks') {
+      teamTab = 'tasks';
+      openPanel({ type: 'team' });
+    } else if (cmd === 'toplantı' || cmd === 'toplanti' || cmd === 'meeting') {
+      meetDraft = { topic: arg.trim(), picked: null };
+      openPanel({ type: 'meeting' });
+    } else if (cmd === 'alarm') {
+      session.startManualAlarm(arg.trim());
+    } else if (cmd === 'alarm-bitti' || cmd === 'all-clear') {
+      if (s.alarm) session.endAlarm();
+      else session.systemNote('Açık bir alarm yok.');
+    } else if (cmd === 'temizle' || cmd === 'clear') {
+      session.clearChatView();
+    } else {
+      return false;
+    }
+    return true;
+  }
 
   /** Settings → Tanılama: each link of the chain from Claude Code to the office. */
   function diagnosticsBlock() {
@@ -701,6 +773,13 @@ export function createUI(scene) {
       askEverySw.setAttribute('aria-checked', value);
       session.setOption('askEveryTask', value);
     });
+    const youSw = $('youSw');
+    if (youSw) youSw.addEventListener('click', () => {
+      showYou = !showYou;
+      youSw.setAttribute('aria-checked', showYou);
+      try { localStorage.setItem(SHOW_YOU_KEY, String(showYou)); } catch { /* storage blocked */ }
+      syncYou();
+    });
     const autoSw = $('autoSw');
     if (autoSw) autoSw.addEventListener('click', async () => {
       const value = !autostart;
@@ -759,6 +838,11 @@ export function createUI(scene) {
         e.preventDefault();
         const text = input.value.trim();
         if (!text && !drafts.length) return;
+        if (panel.id === 'main' && !drafts.length && slashCommand(text)) {
+          input.value = '';
+          renderThread();
+          return;
+        }
         const files = drafts;
         drafts = [];
         input.value = '';
@@ -1020,6 +1104,9 @@ export function createUI(scene) {
         if (agent) tagFor(agent);
         break;
       }
+      case 'handover':
+        if (showYou && scene.handOver(change.to)) sayBubble('you', change.text);
+        break;
       case 'visit':
         scene.visit(change.from, change.to);
         sayBubble(change.from, '✉ mesaj götürüyorum');
@@ -1098,6 +1185,7 @@ export function createUI(scene) {
         const id = session.state.attached?.sessionId ?? null;
         const justAttached = id && id !== wasAttached;
         wasAttached = id;
+        syncYou();
         // Bağlanınca sohbet paneline geç; geçmiş orada görünür.
         if (justAttached) { panel = { type: 'agent', id: 'main' }; scene.select('main'); renderPanel(true); renderDock(); }
         else if (panel?.type === 'agent' && !session.state.agents.has(panel.id)) closePanel();

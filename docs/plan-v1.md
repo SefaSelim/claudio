@@ -83,6 +83,16 @@ existing panel, a single new panel, or the scene itself.
 - UI: Tanılama block, keyboard shortcuts on cards.
 - Repo: `npm test`, CI workflow, release workflow, issue templates.
 
+### 0.10.0 — acting out the turn
+
+Added after 0.9, from the parts of Claude Office still missing:
+
+- A "Sen" character, the user, waits by the beanbag and walks each office message to its
+  recipient's desk (Claude Office's boss handing over the prompt). It can be switched off.
+- Office-only chat commands: `/durum`, `/ajanlar`, `/görevler`, `/toplantı`, `/alarm`,
+  `/alarm-bitti`, `/temizle`, `/yardım` (Claude Office's `/status`, `/agents`,
+  `/incident`, `/all-clear`, `/help`).
+
 ### 1.0.0
 
 Bug fixes from using 0.9 day to day, a pass over every Turkish string, and screenshots in the
