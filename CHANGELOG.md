@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-17
+
+Roadmap phase 3: the agent card.
+
 ### Added
 
 - Agent panel with Sohbet and Adımlar tabs for every agent. Subagent chats come from their own transcripts, so the task Claude gave them and their replies show up.
