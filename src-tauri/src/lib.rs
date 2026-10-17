@@ -1,13 +1,15 @@
 mod position;
+mod sidecar;
 
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use serde::Deserialize;
-use tauri::{AppHandle, Manager, WebviewWindow, WindowEvent};
+use tauri::{AppHandle, Manager, RunEvent, WebviewWindow, WindowEvent};
 
 use position::PendingMove;
+use sidecar::Sidecar;
 
 /// Ön yüzün bildirdiği tıklanabilir bir alan (CSS piksel, pencereye göre).
 #[derive(Deserialize, Clone, Copy, Debug)]
@@ -35,6 +37,12 @@ fn set_hit_regions(regions: Vec<Rect>, state: tauri::State<'_, Arc<HitRegions>>)
 #[tauri::command]
 fn quit_app(app: AppHandle) {
     app.exit(0);
+}
+
+/// Ön yüzden gelen bir JSON komut satırını yan sürece yazar.
+#[tauri::command]
+fn sidecar_send(line: String, sidecar: tauri::State<'_, Sidecar>) -> Result<(), String> {
+    sidecar.send(&line)
 }
 
 /// Taşıma tutamağına çift tıklanınca pencereyi sağ alta geri götürür.
@@ -77,7 +85,12 @@ pub fn run() {
     tauri::Builder::default()
         .manage(regions.clone())
         .manage(PendingMove::default())
-        .invoke_handler(tauri::generate_handler![set_hit_regions, quit_app, reset_position])
+        .invoke_handler(tauri::generate_handler![
+            set_hit_regions,
+            quit_app,
+            reset_position,
+            sidecar_send
+        ])
         .on_window_event(|window, event| {
             if let WindowEvent::Moved(pos) = event {
                 window.state::<PendingMove>().record(*pos);
@@ -91,8 +104,16 @@ pub fn run() {
             win.show()?;
             position::start_saver(app.handle().clone());
             start_click_through(win, regions.clone());
+            app.manage(Sidecar::spawn(app.handle()));
             Ok(())
         })
-        .run(tauri::generate_context!())
-        .expect("Tauri uygulaması başlatılamadı");
+        .build(tauri::generate_context!())
+        .expect("Tauri uygulaması başlatılamadı")
+        .run(|app, event| {
+            if let RunEvent::Exit = event {
+                if let Some(sidecar) = app.try_state::<Sidecar>() {
+                    sidecar.shutdown();
+                }
+            }
+        });
 }
