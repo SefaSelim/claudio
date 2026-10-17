@@ -12,6 +12,7 @@ export const state = {
   answerInOffice: true,
   sessions: [], // { sessionId, name, cwd, status, version, entrypoint, updatedAt }
   attached: null, // { sessionId, name, cwd }
+  busy: false, // whether the attached session is mid-turn
   mode: null, // oturumun izin modu (hook girdisinden)
   agents: new Map(), // id -> { id, kind, type, label, description, state, text, steps }
   chat: [], // { role: 'user' | 'assistant' | 'system', text, pending?, via? }
@@ -28,7 +29,17 @@ function notify(kind, extra = {}) {
   for (const fn of listeners) fn({ kind, ...extra });
 }
 
+// Development hooks: outside Tauri, commands go to a stand-in bridge and events can be injected.
+let devSender = null;
+export function useDevBridge(sender) {
+  devSender = sender;
+}
+export function inject(evt) {
+  onEvent(evt);
+}
+
 export function send(command) {
+  if (devSender) return Promise.resolve(devSender(command));
   return invoke('sidecar_send', { line: JSON.stringify(command) }).catch((err) => {
     state.error = String(err);
     notify('error');
@@ -72,7 +83,7 @@ function labelFor(type) {
 }
 
 function addAgent(agent) {
-  const full = { state: 'think', text: '', steps: [], description: '', ...agent };
+  const full = { state: 'think', text: '', steps: [], chat: [], description: '', ...agent };
   state.agents.set(full.id, full);
   notify('agent_added', { agent: full });
   return full;
@@ -193,7 +204,9 @@ function onEvent(evt) {
     case 'attached':
       resetSessionView();
       state.attached = { sessionId: evt.sessionId, name: evt.name, cwd: evt.cwd };
+      state.busy = Boolean(evt.busy);
       ensureAgent('main');
+      if (state.busy) updateAgent('main', { state: 'think', text: 'Çalışıyor…' });
       notify('status');
       notify('chat');
       notify('requests');
@@ -219,6 +232,19 @@ function onEvent(evt) {
     case 'hook':
       onHook(evt);
       break;
+    case 'busy':
+      state.busy = evt.busy;
+      notify('busy');
+      break;
+    case 'agent_chat': {
+      const agent = state.agents.get(evt.agentId);
+      if (!agent) break;
+      agent.chat.push({ role: evt.role === 'user' ? 'task' : 'assistant', text: evt.text });
+      if (agent.chat.length > 100) agent.chat.shift();
+      if (evt.role === 'assistant') say(agent.id, evt.text);
+      notify('agent_chat', { id: agent.id });
+      break;
+    }
     case 'request': {
       const agentId = evt.agentId && state.agents.has(evt.agentId) ? evt.agentId : 'main';
       state.requests.push({ ...evt, agentId });
@@ -237,8 +263,14 @@ function onEvent(evt) {
       const target = evt.target ? state.agents.get(evt.target)?.label ?? 'alt ajan' : null;
       const files = outgoing.get(evt.clientId) ?? (evt.files ?? []).map((name) => ({ name, preview: null }));
       outgoing.delete(evt.clientId);
-      state.chat.push({ role: 'user', text: target ? `→ ${target}: ${evt.text}` : evt.text, pending: evt.id, files });
+      // Where the message will land: the next step if the session is working, a wake-up if idle.
+      const hint = evt.target ? 'bir sonraki adımında görecek' : evt.busy ? 'Claude meşgul · bir sonraki adımında görecek' : 'Claude boşta · uyandırılıyor';
+      const item = { role: 'user', text: target ? `→ ${target}: ${evt.text}` : evt.text, pending: evt.id, hint, files };
+      state.chat.push(item);
+      // A message to a subagent also shows in that subagent's own chat.
+      if (evt.target) state.agents.get(evt.target)?.chat.push(item);
       notify('chat');
+      if (evt.target) notify('agent_chat', { id: evt.target });
       break;
     }
     case 'delivered': {
@@ -247,6 +279,7 @@ function onEvent(evt) {
         item.pending = null;
         item.via = evt.via;
         notify('chat');
+        for (const agent of state.agents.values()) if (agent.chat.includes(item)) notify('agent_chat', { id: agent.id });
       }
       break;
     }

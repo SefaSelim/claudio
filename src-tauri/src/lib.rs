@@ -83,6 +83,7 @@ fn start_click_through(win: WebviewWindow, regions: Arc<HitRegions>) {
 pub fn run() {
     let regions = Arc::new(HitRegions::default());
     tauri::Builder::default()
+        .plugin(tauri_plugin_notification::init())
         .manage(regions.clone())
         .manage(PendingMove::default())
         .invoke_handler(tauri::generate_handler![

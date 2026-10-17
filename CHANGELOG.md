@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Agent panel with Sohbet and Adımlar tabs for every agent. Subagent chats come from their own transcripts, so the task Claude gave them and their replies show up.
+- Typing indicator while an agent is working, showing its current step.
+- Quick commands under the chat ("Ne yapıyorsun?", "Durum özeti", "Bitince dur" for Claude; status, narrow-down and wrap-up commands for subagents).
+- Queued messages say where they will land: at the next step while the session is busy, or by waking it when idle.
+- Windows notifications and an optional chime for permission prompts, questions and turns that ran longer than 20 seconds. Both can be switched off in the settings.
+- The `?scene-demo` page now plays a whole demo session through the real panels and cards.
+
 ## [0.2.0] - 2026-10-17
 
 Roadmap phase 2: the cozy office.

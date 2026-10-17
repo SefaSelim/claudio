@@ -1,4 +1,5 @@
 import * as session from './session.js';
+import { alertUser, loadAlertPrefs, saveAlertPrefs, playChime } from './alerts.js';
 
 // Yan çubuk, üstte açılan paneller, izin/soru kartları ve ajan etiketleri.
 
@@ -13,7 +14,21 @@ const ICON = {
 const MAX_FILES = 6;
 const MAX_BYTES = 15 * 1024 * 1024;
 
+// Quick commands. They are plain messages; the session decides what to do with them.
+const MAIN_CHIPS = [
+  { label: 'Ne yapıyorsun?', text: 'Şu an ne yapıyorsun? İki cümleyle anlat.' },
+  { label: 'Durum özeti', text: 'Şu ana kadar yapılanları ve sıradaki adımı üç maddede özetle.' },
+  { label: 'Bitince dur', text: 'Şu anki adımı bitirince dur ve benden talimat bekle.' },
+];
+const SUB_CHIPS = [
+  { label: 'Ne yapıyorsun?', text: 'Şu an ne yapıyorsun? Bir cümleyle anlat.' },
+  { label: 'Kapsamı daralt', text: 'Kapsamı daralt ve en önemli kısmı bitirip rapor ver.' },
+  { label: 'Bitir ve raporla', text: 'Elindeki işi toparla ve hemen raporla.' },
+];
+
 const STATE_LABEL = { think: 'düşünüyor', read: 'okuyor', write: 'yazıyor', bash: 'komut çalıştırıyor', wait: 'seni bekliyor', talk: 'görev veriyor', done: 'sıra sende' };
+// "Your turn" only makes sense for the main agent; a finished subagent is simply done.
+const stateLabel = (agent) => (agent.state === 'done' && agent.kind === 'sub' ? 'bitti' : STATE_LABEL[agent.state] ?? agent.state);
 const MODES = {
   default: { label: 'Her şeyi sor', color: 'var(--ok)' },
   acceptEdits: { label: 'Düzenlemeler otomatik', color: 'var(--s-read)' },
@@ -36,6 +51,7 @@ export function createUI(scene) {
   const badge = $('modebadge');
   let panel = null; // { type, id? }
   let wasAttached = null;
+  let agentTab = 'chat';
 
   // ---------- ajan etiketleri ----------
   const tags = new Map(); // id -> { el, bubbleTimer }
@@ -128,7 +144,7 @@ export function createUI(scene) {
   // ---------- paneller ----------
   function openPanel(next) {
     const same = panel && next && panel.type === next.type && panel.id === next.id;
-    if (!same) drafts = [];
+    if (!same) { drafts = []; agentTab = 'chat'; }
     panel = same ? null : next;
     if (panel?.type === 'agent' && !session.state.agents.has(panel.id)) panel = null;
     scene.select(panel?.type === 'agent' ? panel.id : null);
@@ -236,35 +252,48 @@ export function createUI(scene) {
       `<div class="row"><div><b>İzinleri ve soruları ofisten cevapla</b><p class="desc">Açıkken izin istekleri ve AskUserQuestion önce burada görünür. Kapalıyken terminalde cevaplanır.</p></div><button class="sw" role="switch" id="answerSw" aria-checked="${s.answerInOffice}" aria-label="Ofisten cevapla"></button></div>` +
       `<div class="kv"><span>Oturumun izin modu</span><b>${esc(m?.label ?? s.mode ?? 'bilinmiyor')}</b></div>` +
       `<p class="desc">İzin modunu terminalde Shift+Tab ile değiştirebilirsin. Bir izin kartında "düzenlemeleri otomatik onayla" seçersen oturum o moda geçer.</p>` +
+      `<div class="row"><div><b>Windows bildirimleri</b><p class="desc">İzin ve soru geldiğinde, uzun bir tur bittiğinde.</p></div><button class="sw" role="switch" id="notifySw" aria-checked="${alerts.notify}" aria-label="Windows bildirimleri"></button></div>` +
+      `<div class="row"><div><b>Ses</b><p class="desc">Aynı anlarda kısa bir zil sesi.</p></div><button class="sw" role="switch" id="soundSw" aria-checked="${alerts.sound}" aria-label="Ses"></button></div>` +
       `</div>`;
   }
+
+  const alerts = loadAlertPrefs();
 
   function agentPanel() {
     const s = session.state;
     const agent = s.agents.get(panel.id);
     const isMain = panel.id === 'main';
     const sub = isMain ? esc(s.attached?.name || 'Ana ajan') : esc(agent.description || agent.type);
-    const st = `<span class="st live" style="--c:var(--s-${agent.state})" id="agentState"><i class="dot"></i><span>${STATE_LABEL[agent.state] ?? agent.state}</span></span>`;
-    const body = isMain ? '<div class="thread" id="thread"></div>' : '<div class="steps" id="steps"></div>';
+    const st = `<span class="st live" style="--c:var(--s-${agent.state})" id="agentState"><i class="dot"></i><span>${stateLabel(agent)}</span></span>`;
+    const tabs = `<div class="tabs-row"><div class="seg" id="agentTabs"><span class="ind"></span><button type="button" data-v="chat" aria-pressed="${agentTab === 'chat'}">Sohbet</button><button type="button" data-v="steps" aria-pressed="${agentTab === 'steps'}">Adımlar <span class="cnt">${agent.steps.length || ''}</span></button></div></div>`;
+    const body = agentTab === 'chat' ? '<div class="thread" id="thread"></div>' : '<div class="steps" id="steps"></div>';
     const placeholder = isMain ? "Claude'a yaz…" : `${agent.label}'a yaz (bir sonraki adımında görür)…`;
-    return head(esc(agent.label), sub, st, true) + `<div class="pbody scroll" id="pbody">${body}</div>` + composer(placeholder, !s.attached);
+    const chips = (isMain ? MAIN_CHIPS : SUB_CHIPS).map((c, i) => `<button type="button" class="chip" data-chip="${i}" ${s.attached ? '' : 'disabled'}>${esc(c.label)}</button>`).join('');
+    return head(esc(agent.label), sub, st, true) + tabs + `<div class="pbody scroll" id="pbody">${body}</div>` +
+      `<div class="chips-row" id="chips">${chips}</div>` + composer(placeholder, !s.attached);
   }
+
+  const BUSY_STATES = new Set(['think', 'read', 'write', 'bash', 'talk']);
 
   function renderThread() {
     const el = $('thread');
     if (!el) return;
-    const items = session.state.chat;
-    el.innerHTML = items.length
+    const agent = session.state.agents.get(panel.id);
+    const items = panel.id === 'main' ? session.state.chat : agent?.chat ?? [];
+    const typing = agent && BUSY_STATES.has(agent.state) && session.state.attached
+      ? `<div class="typing" aria-label="${esc(agent.label)} çalışıyor"><i></i><i></i><i></i><span>${esc(agent.text || 'çalışıyor')}</span></div>` : '';
+    el.innerHTML = (items.length
       ? items.map((m) => {
-          const cls = m.role === 'user' ? 'me' : m.role === 'system' ? 'sys' : 'ag';
+          const cls = m.role === 'user' ? 'me' : m.role === 'system' ? 'sys' : m.role === 'task' ? 'task' : 'ag';
           const status = m.role === 'user' && (m.pending || m.via)
-            ? `<span class="dl">${m.pending ? 'iletilmeyi bekliyor…' : `iletildi · ${esc(m.via)}`}</span>` : '';
+            ? `<span class="dl">${m.pending ? esc(m.hint || 'iletilmeyi bekliyor…') : `iletildi · ${esc(m.via)}`}</span>` : '';
+          const label = m.role === 'task' ? '<span class="tl">Claude\'dan görev</span>' : '';
           const files = m.files?.length
             ? `<span class="mfiles">${m.files.map((f) => (f.preview ? `<img src="${f.preview}" alt="${esc(f.name)}" title="${esc(f.name)}">` : `<span class="mfile">${esc(f.name)}</span>`)).join('')}</span>`
             : '';
-          return `<div class="m ${cls}${m.pending ? ' pending' : ''}">${files}${esc(m.text)}${status}</div>`;
+          return `<div class="m ${cls}${m.pending ? ' pending' : ''}">${label}${files}${esc(m.text)}${status}</div>`;
         }).join('')
-      : '<div class="m sys">Henüz mesaj yok.</div>';
+      : `<div class="m sys">${panel.id === 'main' ? 'Henüz mesaj yok.' : 'Bu ajanın kaydı henüz gelmedi.'}</div>`) + typing;
     const body = $('pbody');
     if (body) body.scrollTop = body.scrollHeight;
   }
@@ -303,6 +332,26 @@ export function createUI(scene) {
       sw.setAttribute('aria-checked', value);
       session.setAnswerInOffice(value);
     });
+    for (const [id, key] of [['notifySw', 'notify'], ['soundSw', 'sound']]) {
+      const toggle = $(id);
+      if (!toggle) continue;
+      toggle.addEventListener('click', () => {
+        alerts[key] = !alerts[key];
+        toggle.setAttribute('aria-checked', alerts[key]);
+        saveAlertPrefs(alerts);
+        if (key === 'sound' && alerts.sound) playChime();
+      });
+    }
+    const tabsEl = $('agentTabs');
+    if (tabsEl) segInit(tabsEl, (v) => { agentTab = v; renderPanel(); });
+    for (const chip of root.querySelectorAll('[data-chip]')) {
+      chip.addEventListener('click', () => {
+        const list = panel.id === 'main' ? MAIN_CHIPS : SUB_CHIPS;
+        session.sendMessage(list[Number(chip.dataset.chip)].text, panel.id);
+        agentTab = 'chat';
+        renderThread();
+      });
+    }
     const msg = $('msgForm');
     if (msg) {
       const input = $('msgInput');
@@ -340,6 +389,28 @@ export function createUI(scene) {
     }
     renderThread();
     renderSteps();
+  }
+
+  /** Segmented control with a sliding indicator. */
+  function segInit(seg, onPick) {
+    const ind = seg.querySelector('.ind');
+    const buttons = [...seg.querySelectorAll('button')];
+    const place = () => {
+      const on = buttons.find((b) => b.getAttribute('aria-pressed') === 'true') ?? buttons[0];
+      ind.style.width = `${on.offsetWidth}px`;
+      ind.style.transform = `translateX(${on.offsetLeft - 3}px)`;
+    };
+    ind.style.transition = 'none';
+    place();
+    requestAnimationFrame(() => { ind.style.transition = ''; });
+    for (const b of buttons) {
+      b.addEventListener('click', () => {
+        if (b.getAttribute('aria-pressed') === 'true') return;
+        for (const x of buttons) x.setAttribute('aria-pressed', x === b);
+        place();
+        setTimeout(() => onPick(b.dataset.v), 180);
+      });
+    }
   }
 
   // ---------- izin ve soru kartları ----------
@@ -452,6 +523,31 @@ export function createUI(scene) {
   }
 
   // ---------- olaylar ----------
+  const root = () => panelEl;
+
+  // ---------- alerts ----------
+  const seenRequests = new Set();
+  function alertNewRequests() {
+    for (const req of session.state.requests) {
+      if (seenRequests.has(req.requestId)) continue;
+      seenRequests.add(req.requestId);
+      const who = agentLabel(req.agentId);
+      if (req.kind === 'question') alertUser(`${who} soruyor`, req.input?.questions?.[0]?.question ?? 'Ofiste bir soru bekliyor.');
+      else alertUser(`${who} izin istiyor`, `${req.toolName}: ${String(req.input?.command ?? req.input?.file_path ?? '').slice(0, 120)}`);
+    }
+  }
+
+  // A turn that ran for a while gets a "done" notification when it ends.
+  let turnStarted = 0;
+  function trackTurn(busy) {
+    if (busy) { turnStarted ||= Date.now(); return; }
+    const took = turnStarted ? Date.now() - turnStarted : 0;
+    turnStarted = 0;
+    if (took < 20_000) return;
+    const last = [...session.state.chat].reverse().find((m) => m.role === 'assistant');
+    alertUser('Claude bitirdi', last ? last.text.slice(0, 140) : 'Sıra sende.');
+  }
+
   session.subscribe((change) => {
     switch (change.kind) {
       case 'agent_added':
@@ -466,10 +562,19 @@ export function createUI(scene) {
           const st = $('agentState');
           if (st) {
             st.style.setProperty('--c', `var(--s-${change.agent.state})`);
-            st.lastChild.textContent = STATE_LABEL[change.agent.state] ?? change.agent.state;
+            st.lastChild.textContent = stateLabel(change.agent);
           }
+          const cnt = root().querySelector('#agentTabs .cnt');
+          if (cnt) cnt.textContent = change.agent.steps.length || '';
           renderSteps();
+          renderThread();
         }
+        break;
+      case 'agent_chat':
+        if (panel?.type === 'agent' && panel.id === change.id) renderThread();
+        break;
+      case 'busy':
+        trackTurn(session.state.busy);
         break;
       case 'agent_removed': {
         scene.removeAgent(change.agent.id);
@@ -487,6 +592,7 @@ export function createUI(scene) {
       case 'requests':
         renderRequests();
         renderDock();
+        alertNewRequests();
         break;
       case 'sessions':
         renderBadge();

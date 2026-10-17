@@ -62,11 +62,7 @@ watchHitRegions();
 // walk in, work, and leave without Tauri or a Claude Code session.
 if (!('__TAURI_INTERNALS__' in window) && new URLSearchParams(location.search).has('scene-demo')) {
   document.documentElement.style.background = '#8a8f99';
-  scene.addAgent('main', 'main');
-  scene.setState('main', 'talk');
-  const crew = [['a1', 'Explore', 'read'], ['a2', 'Plan', 'write'], ['a3', 'general-purpose', 'bash'], ['a4', 'Explore', 'wait'], ['a5', 'code-reviewer', 'read'], ['a6', 'general-purpose', 'write']];
-  crew.forEach(([id, type, st], i) => setTimeout(() => { scene.addAgent(id, type); scene.setState(id, st); }, 600 + i * 700));
-  setTimeout(() => scene.removeAgent('a2'), 9000);
+  import('./dev-demo.js').then((m) => m.runDevDemo());
 } else {
   connect().catch(console.error);
 }
