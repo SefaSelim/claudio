@@ -6,7 +6,26 @@ Tasarım ve yol haritası: https://claude.ai/artifact/G8Fc75oiVbtYyUCbwLJZLQ
 
 ## Durum
 
-Faz 0: şeffaf, çerçevesiz, hep üstte, görev çubuğunda görünmeyen pencere. Sağ alta yerleşir. Sadece ofis, yan çubuk ve açık paneller tıklanır; geri kalan her yere tıklama alttaki pencereye geçer.
+- Faz 0: şeffaf, çerçevesiz, hep üstte, görev çubuğunda görünmeyen pencere. Sadece ofis, yan çubuk ve açık paneller tıklanır; geri kalan her yere tıklama alttaki pencereye geçer. Tutamaçla taşınır, konum hatırlanır.
+- Faz 1: ofis, Claude Agent SDK ile kendi Claude oturumunu açar. Alt ajanlar sahnede belirip kaybolur, araç kullanımı animasyona ve baloncuklara dönüşür. Sohbet, izin kartları ve AskUserQuestion soru kartları ofisin üstünde açılır; izin modu ayarlardan değişir.
+
+## API anahtarı
+
+Anthropic, Agent SDK ile yapılan uygulamaların claude.ai girişini kullanmasına izin vermiyor; ofis bir API anahtarıyla çalışır. Claude Console'dan anahtar alıp:
+
+```powershell
+setx ANTHROPIC_API_KEY "anahtar"
+```
+
+Sonra terminali kapatıp yeniden açın. Bedrock, Vertex ve Foundry ortam değişkenleri de desteklenir.
+
+## Demo modu
+
+Anahtar olmadan akışı denemek için yan süreç senaryolu bir oturum oynatabilir:
+
+```bash
+CLAUDIO_FAKE=1 npm run tauri dev
+```
 
 ## Gereksinimler (Windows)
 
