@@ -10,6 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - The office renders at 60 fps only while someone walks, 30 fps while agents sit at their desks and 12 fps when it is empty.
 - Installed builds run the bridge from the bundled resources folder instead of the source tree.
+- The bridge rewrites its own hooks when they point at an older install of the office, so moving from the source tree to an installed build keeps working.
 
 ### Added
 

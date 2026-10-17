@@ -20,7 +20,7 @@ import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { listSessions, findTranscript, TranscriptTail, subagentTranscript } from './sessions.mjs';
-import { hooksInstalled, installHooks, uninstallHooks } from './hooks-config.mjs';
+import { hooksInstalled, hooksCurrent, installHooks, uninstallHooks } from './hooks-config.mjs';
 import { BRIDGE_PORT, tokenFile, attachmentsDir } from './paths.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -395,6 +395,18 @@ function send({ text, target, attachments = [], clientId }) {
   if (FAKE) fakeDeliver(attached.sessionId);
 }
 
+/** Rewrite our hooks if they belong to an older install of the office. */
+function refreshHooks() {
+  if (FAKE || !hooksInstalled()) return;
+  const waiterPath = path.join(here, 'claudio-waiter.mjs');
+  if (hooksCurrent({ token: TOKEN, waiterPath })) return;
+  try {
+    installHooks({ token: TOKEN, waiterPath });
+  } catch (err) {
+    log('hook yenilenemedi', err.message);
+  }
+}
+
 function hooksStatus(error) {
   emit({ type: 'hooks_status', installed: FAKE || hooksInstalled(), error: error ?? null });
 }
@@ -405,6 +417,7 @@ async function handle(command) {
       emit({ type: 'ready', fake: FAKE, attached: attached?.sessionId ?? null, ...options });
       lastList = '';
       pollSessions();
+      refreshHooks();
       return hooksStatus();
     case 'attach':
       return attach(command.sessionId);
