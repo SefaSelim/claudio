@@ -55,7 +55,8 @@ fn start_click_through(win: WebviewWindow, regions: Arc<HitRegions>) {
     thread::spawn(move || {
         let mut ignoring: Option<bool> = None;
         loop {
-            thread::sleep(Duration::from_millis(33));
+            // ~60 Hz: imleç hızlı hareket etse de ilk tıklama doğru pencereye gider.
+            thread::sleep(Duration::from_millis(16));
             let (Ok(cursor), Ok(origin), Ok(scale)) =
                 (win.cursor_position(), win.inner_position(), win.scale_factor())
             else {
