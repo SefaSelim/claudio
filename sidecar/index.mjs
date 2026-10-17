@@ -19,7 +19,7 @@ import http from 'node:http';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import { listSessions, findTranscript, TranscriptTail } from './sessions.mjs';
+import { listSessions, findTranscript, TranscriptTail, subagentTranscript } from './sessions.mjs';
 import { hooksInstalled, installHooks, uninstallHooks } from './hooks-config.mjs';
 import { BRIDGE_PORT, tokenFile, attachmentsDir } from './paths.mjs';
 
@@ -44,7 +44,7 @@ const TOKEN = loadToken();
 
 // ---------- durum ----------
 const options = { answerInOffice: true };
-let attached = null; // { sessionId, tail }
+let attached = null; // { sessionId, tail, busy, subTails: Map<agentId, { tail, timer }> }
 const pending = new Map(); // requestId -> { resolve, kind, input }
 const queues = new Map(); // sessionId -> [{ id, text, target }]
 const waiters = new Map(); // sessionId -> res
@@ -144,6 +144,43 @@ function answer({ requestId, behavior, answers, mode, message }) {
   entry.finish({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } });
 }
 
+// ---------- busy tracking and subagent transcripts ----------
+
+/** Tells the office whether queued messages will arrive at the next step or wake the session. */
+function setBusy(busy) {
+  if (!attached || attached.busy === busy) return;
+  attached.busy = busy;
+  emit({ type: 'busy', busy });
+}
+
+/** Tail a subagent's own transcript so its panel can show what it says. The file appears shortly after SubagentStart. */
+function startSubagentTail(sessionId, agentId) {
+  const main = knownTranscripts.get(sessionId) ?? findTranscript(sessionId);
+  if (!main || !attached || attached.subTails.has(agentId)) return;
+  const file = subagentTranscript(main, sessionId, agentId);
+  const entry = { tail: null, timer: null };
+  attached.subTails.set(agentId, entry);
+  let tries = 0;
+  const open = () => {
+    if (!isAttached(sessionId)) return;
+    if (!fs.existsSync(file)) {
+      if (++tries < 60) entry.timer = setTimeout(open, 500);
+      return;
+    }
+    entry.tail = new TranscriptTail(file, (item) => isAttached(sessionId) && emit({ type: 'agent_chat', agentId, ...item }), { sidechain: true });
+    for (const item of entry.tail.start(30)) emit({ type: 'agent_chat', agentId, ...item });
+  };
+  open();
+}
+
+function stopSubagentTail(agentId) {
+  const entry = attached?.subTails.get(agentId);
+  if (!entry) return;
+  clearTimeout(entry.timer);
+  entry.tail?.flushAndStop();
+  attached.subTails.delete(agentId);
+}
+
 // ---------- hook'lar ----------
 const pick = (b) => ({
   event: b.hook_event_name,
@@ -168,6 +205,9 @@ export async function handleHook(body, res) {
     return {};
   }
   emit({ type: 'hook', ...pick(body) });
+  if (event === 'UserPromptSubmit' || event === 'PreToolUse' || event === 'PostToolUse') setBusy(true);
+  if (event === 'SubagentStart' && body.agent_id) startSubagentTail(sessionId, body.agent_id);
+  if (event === 'SubagentStop' && body.agent_id) stopSubagentTail(body.agent_id);
 
   switch (event) {
     case 'PermissionRequest':
@@ -190,7 +230,10 @@ export async function handleHook(body, res) {
     }
     case 'Stop': {
       const msgs = takeMessages(sessionId, null);
-      if (!msgs.length) return {};
+      if (!msgs.length) {
+        setBusy(false);
+        return {};
+      }
       markDelivered(msgs, 'tur sonu');
       return { decision: 'block', reason: formatMessages(msgs) };
     }
@@ -207,8 +250,9 @@ function attach(sessionId) {
   if (attached) detach();
   const transcript = knownTranscripts.get(sessionId) ?? findTranscript(sessionId);
   const session = (FAKE ? fakeSessions() : listSessions()).find((s) => s.sessionId === sessionId);
-  attached = { sessionId, tail: null };
-  emit({ type: 'attached', sessionId, name: session?.name ?? '', cwd: session?.cwd ?? '' });
+  // The session list knows whether the session is mid-turn right now.
+  attached = { sessionId, tail: null, busy: session?.status === 'busy', subTails: new Map() };
+  emit({ type: 'attached', sessionId, name: session?.name ?? '', cwd: session?.cwd ?? '', busy: attached.busy });
   if (FAKE) return startFake(sessionId);
   if (!transcript) return emit({ type: 'history', items: [], note: 'Kayıt dosyası henüz yok; ilk mesajdan sonra görünür.' });
   const tail = new TranscriptTail(transcript, (item) => isAttached(sessionId) && emit({ type: 'chat', ...item }));
@@ -219,6 +263,7 @@ function attach(sessionId) {
 function detach(why) {
   if (!attached) return;
   attached.tail?.stop();
+  for (const agentId of [...attached.subTails.keys()]) stopSubagentTail(agentId);
   for (const entry of pending.values()) entry.finish({}, null);
   const { sessionId } = attached;
   attached = null;
@@ -311,7 +356,7 @@ function send({ text, target, attachments = [], clientId }) {
     : text;
   const msg = { id: `m${++msgSeq}`, text: body, target: target ?? null };
   queueFor(attached.sessionId).push(msg);
-  emit({ type: 'queued', id: msg.id, text, target: msg.target, clientId: clientId ?? null, files: files.map((f) => path.basename(f)) });
+  emit({ type: 'queued', id: msg.id, text, target: msg.target, clientId: clientId ?? null, files: files.map((f) => path.basename(f)), busy: attached.busy });
   if (!target) wakeWaiter(attached.sessionId);
   if (FAKE) fakeDeliver(attached.sessionId);
 }

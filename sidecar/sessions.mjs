@@ -62,15 +62,18 @@ export function findTranscript(sessionId) {
 
 const NOISE = /^<(command-|local-command|system-reminder|bash-|task-notification)/;
 
-/** Bir kayıt satırını sohbet öğesine çevirir; sohbetle ilgisi yoksa null. */
-export function parseRecord(line) {
+/**
+ * Bir kayıt satırını sohbet öğesine çevirir; sohbetle ilgisi yoksa null.
+ * Subagent transcripts mark every record as a sidechain, so they pass { sidechain: true }.
+ */
+export function parseRecord(line, { sidechain = false } = {}) {
   let rec;
   try {
     rec = JSON.parse(line);
   } catch {
     return null;
   }
-  if (rec.isSidechain || rec.isMeta) return null;
+  if ((rec.isSidechain && !sidechain) || rec.isMeta) return null;
   const content = rec.message?.content;
   if (rec.type === 'user') {
     const text = typeof content === 'string'
@@ -92,13 +95,15 @@ export function parseRecord(line) {
 export class TranscriptTail {
   #file;
   #onItem;
+  #options;
   #offset = 0;
   #partial = '';
   #timer = null;
 
-  constructor(file, onItem) {
+  constructor(file, onItem, options = {}) {
     this.#file = file;
     this.#onItem = onItem;
+    this.#options = options;
   }
 
   /** Son `limit` sohbet öğesini döndürür ve izlemeyi başlatır. */
@@ -108,7 +113,7 @@ export class TranscriptTail {
     const text = this.#read(from, size);
     const lines = text.split('\n');
     if (from > 0) lines.shift(); // yarım kalan ilk satır
-    const history = lines.map(parseRecord).filter(Boolean).slice(-limit);
+    const history = lines.map((l) => parseRecord(l, this.#options)).filter(Boolean).slice(-limit);
     this.#offset = size;
     this.#timer = setInterval(() => this.#poll(), 400);
     return history;
@@ -145,8 +150,19 @@ export class TranscriptTail {
     const lines = chunk.split('\n');
     this.#partial = lines.pop() ?? '';
     for (const line of lines) {
-      const item = parseRecord(line);
+      const item = parseRecord(line, this.#options);
       if (item) this.#onItem(item);
     }
   }
+
+  /** Read whatever was appended since the last poll, then stop. */
+  flushAndStop() {
+    this.#poll();
+    this.stop();
+  }
+}
+
+/** Where Claude Code keeps a subagent's transcript, next to the session transcript. */
+export function subagentTranscript(sessionTranscript, sessionId, agentId) {
+  return path.join(path.dirname(sessionTranscript), sessionId, 'subagents', `agent-${agentId}.jsonl`);
 }
