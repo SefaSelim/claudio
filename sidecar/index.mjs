@@ -12,7 +12,7 @@
 //                 install_hooks, uninstall_hooks, set_option {answerInOffice}, roster
 // Giden olaylar:  ready, sessions, attached, detached, history, chat, hook, request,
 //                 request_cancelled, queued, delivered, hooks_status, error, roster, tasks,
-//                 agent_stats
+//                 agent_stats, signal, usage
 
 import crypto from 'node:crypto';
 import fs from 'node:fs';
@@ -20,8 +20,9 @@ import http from 'node:http';
 import path from 'node:path';
 import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
-import { listSessions, findTranscript, TranscriptTail, subagentTranscript, lastUsage } from './sessions.mjs';
+import { listSessions, findTranscript, TranscriptTail, subagentTranscript, lastUsage, UsageTail } from './sessions.mjs';
 import { readRoster, readTasks } from './roster.mjs';
+import { classify, outcome } from './signals.mjs';
 import { hooksInstalled, hooksCurrent, installHooks, uninstallHooks } from './hooks-config.mjs';
 import { BRIDGE_PORT, tokenFile, attachmentsDir } from './paths.mjs';
 
@@ -230,6 +231,69 @@ function pollTasks() {
 }
 const TASK_TOOLS = new Set(['TaskCreate', 'TaskUpdate', 'TodoWrite']);
 
+// ---------- signals: deploys, builds, tests and pushes ----------
+const SHELL_TOOLS = new Set(['Bash', 'PowerShell']);
+const runningSignals = new Map(); // tool call -> signals classified at PreToolUse
+const signalKey = (b) => b.tool_use_id ?? `${b.agent_id ?? 'main'}:${b.tool_input?.command ?? ''}`;
+
+function responseText(r) {
+  if (!r) return '';
+  if (typeof r === 'string') return r.slice(-20_000);
+  return [r.stdout, r.stderr, r.output, typeof r.content === 'string' ? r.content : null].filter((x) => typeof x === 'string').join('\n').slice(-20_000);
+}
+
+function trackSignals(event, body) {
+  if (!SHELL_TOOLS.has(body.tool_name)) return;
+  const agentId = body.agent_id ?? null;
+  if (event === 'PreToolUse') {
+    const signals = classify(body.tool_input?.command);
+    if (!signals.length) return;
+    runningSignals.set(signalKey(body), signals);
+    if (runningSignals.size > 200) runningSignals.delete(runningSignals.keys().next().value);
+    emit({ type: 'signal', phase: 'start', agentId, signals });
+    return;
+  }
+  if (event !== 'PostToolUse' && event !== 'PostToolUseFailure') return;
+  const key = signalKey(body);
+  const signals = runningSignals.get(key) ?? classify(body.tool_input?.command);
+  runningSignals.delete(key);
+  // A background command has no outcome yet when its PostToolUse fires.
+  if (!signals.length || body.tool_input?.run_in_background) return;
+  const results = outcome(signals, {
+    ok: event === 'PostToolUse',
+    output: responseText(body.tool_response),
+    error: typeof body.error === 'string' ? body.error : '',
+  });
+  emit({ type: 'signal', phase: 'end', agentId, signals: results, interrupted: Boolean(body.is_interrupt) });
+}
+
+// ---------- usage meters ----------
+let lastUsageKey = '';
+let usageAt = 0;
+let usageTimer = null;
+function pollUsage(force = false) {
+  if (!attached || FAKE) return;
+  // At most one read every 3 s; a burst of hooks ends in one trailing read.
+  const wait = 3000 - (Date.now() - usageAt);
+  if (!force && wait > 0) {
+    usageTimer ??= setTimeout(() => { usageTimer = null; pollUsage(true); }, wait);
+    return;
+  }
+  usageAt = Date.now();
+  if (!attached.usage) {
+    const file = knownTranscripts.get(attached.sessionId) ?? findTranscript(attached.sessionId);
+    if (!file) return;
+    attached.usage = new UsageTail(file);
+  }
+  attached.usage.poll();
+  const snap = attached.usage.snapshot();
+  if (!snap) return;
+  const key = JSON.stringify(snap);
+  if (key === lastUsageKey) return;
+  lastUsageKey = key;
+  emit({ type: 'usage', sessionId: attached.sessionId, ...snap });
+}
+
 // ---------- hook'lar ----------
 const pick = (b) => ({
   event: b.hook_event_name,
@@ -261,6 +325,8 @@ export async function handleHook(body, res) {
   waiting.delete(sessionId);
   emit({ type: 'hook', ...pick(body) });
   if (event === 'TaskCreated' || event === 'TaskCompleted' || (event === 'PostToolUse' && TASK_TOOLS.has(body.tool_name))) setTimeout(pollTasks, 250);
+  trackSignals(event, body);
+  if (event === 'Stop' || event === 'PostToolUse' || event === 'UserPromptSubmit' || event === 'PostCompact') setTimeout(pollUsage, 300);
   if (event === 'CwdChanged' && typeof body.new_cwd === 'string' && body.new_cwd) {
     attached.cwd = body.new_cwd;
     sendRoster();
@@ -319,8 +385,10 @@ function attach(sessionId) {
   attached = { sessionId, cwd: session?.cwd ?? '', tail: null, busy: session?.status === 'busy', subTails: new Map() };
   emit({ type: 'attached', sessionId, name: session?.name ?? '', cwd: session?.cwd ?? '', busy: attached.busy });
   lastTasks = '';
+  lastUsageKey = '';
   sendRoster();
   pollTasks();
+  pollUsage(true);
   if (FAKE) return startFake(sessionId);
   if (!transcript) return emit({ type: 'history', items: [], note: 'Kayıt dosyası henüz yok; ilk mesajdan sonra görünür.' });
   const tail = new TranscriptTail(transcript, (item) => isAttached(sessionId) && emit({ type: 'chat', ...item }));
@@ -518,6 +586,8 @@ if (FAKE) fakeModule = await import('./fake.mjs');
 setInterval(pollSessions, 2000);
 // No hook fires when a task goes in progress, so the files are polled as well.
 setInterval(pollTasks, 2000);
+// Tokens per minute fall back to zero while the session sits idle.
+setInterval(() => pollUsage(true), 15_000);
 emit({ type: 'ready', fake: FAKE, attached: null, ...options });
 pollSessions();
 hooksStatus();

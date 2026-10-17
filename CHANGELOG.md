@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- The bridge recognises deploys, builds, test runs and git pushes in Bash and PowerShell calls and reports how each one ended, with the first meaningful error line and a failure count.
+- Context fill and tokens per minute for the attached session, read from its transcript against the model's context window.
+
 ## [0.7.0] - 2026-10-18
 
 The truthful office: the project's agents, skills and task list, and Claude's own states.
