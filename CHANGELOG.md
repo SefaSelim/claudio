@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Meetings: a Toplantı button in the dock asks for a topic and the participants, then sends Claude a structured meeting prompt.
+- Agents in a meeting walk to the meeting room, with Claude at the head of the table, and return to their desks when it ends.
+- The meeting panel shows the conversation, lets you interject, ends the meeting on request and keeps the summary on screen until you close it.
+- Meeting prompts appear as short lines in the main chat.
+
 ## [0.4.0] - 2026-10-17
 
 Roadmap phase 4: question and permission controls.

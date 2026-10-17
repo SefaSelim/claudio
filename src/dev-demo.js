@@ -23,11 +23,38 @@ function devBridge(command) {
     session.inject({ type: 'queued', id, text: command.text, target: command.target, clientId: command.clientId, busy });
     setTimeout(() => {
       session.inject({ type: 'delivered', id, via: busy ? 'araç sonrası' : 'uyandırma' });
-      session.inject({ type: 'chat', role: 'assistant', text: `(Demo) Mesajını aldım: "${command.text}"` });
+      if (command.text.startsWith(session.MEETING_START)) demoMeeting();
+      else if (command.text.startsWith(session.MEETING_END)) demoSummary();
+      else session.inject({ type: 'chat', role: 'assistant', text: `(Demo) Mesajını aldım: "${command.text}"` });
     }, 1500);
   }
   if (command.cmd === 'answer') session.inject({ type: 'chat', role: 'system', text: `Demo: istek cevaplandı (${command.behavior}).` });
   if (command.cmd === 'set_option') session.inject({ type: 'options', ...command.options });
+}
+
+async function demoMeeting() {
+  session.inject({ type: 'busy', busy: true });
+  hook('UserPromptSubmit', {});
+  await wait(1200);
+  session.inject({ type: 'chat', role: 'assistant', text: 'Toplantıyı açıyorum. Ben: kart sekmeleri hazır, testler geçiyor.' });
+  await tool(undefined, undefined, 'SendMessage', { to: 'plan-1', message: 'Durumun ne?' }, 1500);
+  session.inject({ type: 'chat', role: 'assistant', text: 'Plan: kart tasarım notları docs/faz3.md içinde, bir karar bekliyor.' });
+  await wait(800);
+  session.inject({
+    type: 'request', requestId: 'mq1', kind: 'question', sessionId: SID, toolName: 'AskUserQuestion', agentId: null,
+    input: { questions: [{ question: 'Toplantı odası ilk sürümde olsun mu?', header: 'Kapsam', multiSelect: false, options: [{ label: 'Evet', description: 'Faz 5 ile birlikte' }, { label: 'Sonra', description: 'Önce cila' }] }] },
+  });
+  busy = false;
+  hook('Stop', {});
+  session.inject({ type: 'busy', busy: false });
+}
+
+async function demoSummary() {
+  session.inject({ type: 'busy', busy: true });
+  await wait(1500);
+  session.inject({ type: 'chat', role: 'assistant', text: '## Toplantı özeti\n- Karar: toplantı odası bu sürümde.\n- Plan ajanı tasarım notlarını tamamlayacak.\n- Sıradaki adım: cila ve paketleme.' });
+  hook('Stop', {});
+  session.inject({ type: 'busy', busy: false });
 }
 
 export async function runDevDemo() {
@@ -71,9 +98,8 @@ export async function runDevDemo() {
     suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm run build' }], behavior: 'allow', destination: 'session' }],
   });
   hook('SubagentStop', { agent_id: 'explore-1', agent_type: 'Explore' });
+  // plan-1 stays open so a meeting can be tried with a subagent in the room.
   await wait(3000);
-  hook('SubagentStop', { agent_id: 'plan-1', agent_type: 'Plan' });
-  await wait(2000);
   busy = false;
   hook('Stop', {});
   session.inject({ type: 'busy', busy: false });

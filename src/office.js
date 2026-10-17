@@ -163,6 +163,19 @@ const SPOTS = [
   ]),
 ];
 
+/** The head of the meeting table, reserved for the main agent during meetings. */
+export const MEETING_HEAD = { id: 'meet-head', kind: 'meeting', x: 2.75, z: -2.82, rot: 0, approach: [...MEETING_GATE, [4.2, 0.4], [4.2, -2.82]] };
+
+/** Standing places along the front of the table when every chair is taken. */
+export const MEETING_STANDING = [[2.2, 0.35], [2.75, 0.45], [3.3, 0.35], [1.7, 0.9], [3.8, 0.9]].map(([x, z], i) => ({
+  id: `meet-stand${i}`, kind: 'meeting', x, z, rot: PI, approach: [...MEETING_GATE, [x, z + 0.5]],
+}));
+
+/** Walk from one spot to another without going out through the door. */
+export function routeBetween(from, to) {
+  return [...[...from.approach].reverse(), ...to.approach, [to.x, to.z]];
+}
+
 /** Waypoints from the door to a spot (the spot itself last). */
 export function routeFromDoor(spot) {
   return [...spot.approach, [spot.x, spot.z]];
