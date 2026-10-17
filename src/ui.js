@@ -241,6 +241,7 @@ export function createUI(scene) {
   // ---------- paneller ----------
   function openPanel(next) {
     const same = panel && next && panel.type === next.type && panel.id === next.id;
+    if (!same && next?.type === 'settings') session.requestDiagnostics();
     if (!same) { drafts = []; agentTab = 'chat'; }
     panel = same ? null : next;
     if (panel?.type === 'agent' && !session.state.agents.has(panel.id)) panel = null;
@@ -355,11 +356,31 @@ export function createUI(scene) {
       `<p class="desc">İzin modunu terminalde Shift+Tab ile değiştirebilirsin. Bir izin kartında "düzenlemeleri otomatik onayla" seçersen oturum o moda geçer.</p>` +
       `<div class="row"><div><b>Windows bildirimleri</b><p class="desc">İzin ve soru geldiğinde, uzun bir tur bittiğinde.</p></div><button class="sw" role="switch" id="notifySw" aria-checked="${alerts.notify}" aria-label="Windows bildirimleri"></button></div>` +
       `<div class="row"><div><b>Windows ile başlat</b><p class="desc">Oturum açınca ofis kendiliğinden açılır.</p></div><button class="sw" role="switch" id="autoSw" aria-checked="${autostart === true}" aria-label="Windows ile başlat" ${autostart === null ? 'disabled' : ''}></button></div>` +
+      diagnosticsBlock() +
       `<div class="row"><div><b>Ses</b><p class="desc">Aynı anlarda kısa bir zil sesi.</p></div><button class="sw" role="switch" id="soundSw" aria-checked="${alerts.sound}" aria-label="Ses"></button></div>` +
       `</div>`;
   }
 
   const alerts = loadAlertPrefs();
+
+  /** Settings → Tanılama: each link of the chain from Claude Code to the office. */
+  function diagnosticsBlock() {
+    const d = session.state.diagnostics;
+    if (!d) return '<span class="lbl">Tanılama</span><p class="desc">Denetleniyor…</p>';
+    const since = d.lastHookAt ? Math.round((Date.now() - d.lastHookAt) / 1000) : null;
+    const row = (state, label, value) => `<div class="diag ${state}"><i></i><span>${label}</span><b>${value}</b></div>`;
+    const hooks = !d.hooksInstalled ? row('bad', 'Claude Code bağlantısı', 'kurulu değil')
+      : !d.hooksCurrent ? row('warn', 'Claude Code bağlantısı', 'eski, yenilenmeli') : row('ok', 'Claude Code bağlantısı', 'kurulu');
+    const seen = d.hooksSeen ? row(since !== null && since < 600 ? 'ok' : 'warn', 'Son hook', `${since < 60 ? `${since} sn` : `${Math.round(since / 60)} dk`} önce · ${esc(d.lastHookEvent ?? '')}`)
+      : row(d.hooksInstalled ? 'warn' : 'bad', 'Son hook', 'henüz gelmedi · Claude bir araç kullanınca gelir');
+    const fix = !d.hooksInstalled || !d.hooksCurrent ? '<button class="btn ghost small" data-act="install">Bağlantıyı onar</button>' : '';
+    return '<span class="lbl">Tanılama</span><div class="diags">' +
+      row(d.nodeOk ? 'ok' : 'bad', 'Node.js', esc(d.node) + (d.nodeOk ? '' : ' · 20 veya üstü gerekli')) +
+      hooks + seen +
+      row(d.sessions ? 'ok' : 'warn', 'Açık oturum', d.sessions ? String(d.sessions) : 'yok · terminalde claude başlat') +
+      row('ok', 'Köprü', `${d.version ? `v${esc(d.version)} · ` : ''}port ${d.port}`) +
+      `</div>${fix}`;
+  }
   // null until the shell answers (and in the browser preview, where there is no shell).
   let autostart = null;
   invoke('get_autostart').then((on) => { autostart = Boolean(on); if (panel?.type === 'settings') renderPanel(); }).catch(() => {});
@@ -820,7 +841,8 @@ export function createUI(scene) {
       `<div class="row start"><button class="btn" data-a="allow">İzin ver</button><button class="btn ghost" data-a="deny">Reddet</button>` +
       (req.suggestions?.length ? '<button class="btn ghost" data-a="always">Bu oturumda hep izin ver</button>' : '') +
       (EDIT_TOOLS.has(req.toolName) ? '<button class="btn ghost" data-a="edits">İzin ver + düzenlemeleri otomatik onayla</button>' : '') +
-      `<button class="link" data-a="terminal">Terminalde cevapla</button></div>`;
+      `<button class="link" data-a="terminal">Terminalde cevapla</button></div>` +
+      '<div class="kbd">Enter izin ver · N reddet · T terminal</div>';
     el.addEventListener('click', (e) => {
       const b = e.target.closest('[data-a]');
       if (!b) return;
@@ -849,7 +871,8 @@ export function createUI(scene) {
         `<div class="qblock">${q.header ? `<span class="chip-h">${esc(q.header)}</span>` : ''}<div class="q">${esc(q.question)}</div>` +
         `<div class="opts">${(q.options ?? []).map((o, oi) => `<button type="button" class="opt" data-q="${qi}" data-o="${oi}"><b>${esc(o.label)}</b>${o.description ? `<span>${esc(o.description)}</span>` : ''}</button>`).join('')}</div>` +
         `<input class="field other" data-q="${qi}" placeholder="Başka bir cevap…" autocomplete="off"></div>`).join('') +
-      `<div class="row start"><button class="btn" data-send disabled>Gönder</button><button class="link" data-terminal>Terminalde cevapla</button></div>`;
+      `<div class="row start"><button class="btn" data-send disabled>Gönder</button><button class="link" data-terminal>Terminalde cevapla</button></div>` +
+      '<div class="kbd">1-9 seç · Enter gönder · T terminal</div>';
     const sendBtn = el.querySelector('[data-send]');
     const refresh = () => {
       el.querySelectorAll('.opt').forEach((b) => b.classList.toggle('picked', picks[b.dataset.q].has(Number(b.dataset.o))));
@@ -901,6 +924,46 @@ export function createUI(scene) {
     }
   }
 
+  // ---------- tray tooltip ----------
+  function updateTray() {
+    const s = session.state;
+    const reqs = s.requests.length;
+    const others = s.sessions.filter((x) => x.waiting && x.sessionId !== s.attached?.sessionId).length;
+    const parts = [reqs ? `${reqs} istek seni bekliyor` : '', others ? `${others} oturum seni bekliyor` : ''].filter(Boolean);
+    invoke('set_tray_status', { text: parts.join(' · ') }).catch(() => {});
+  }
+
+  // ---------- keyboard ----------
+  // While the office has focus: Enter or Y allows the front permission card, N denies it,
+  // T leaves it to the terminal, 1-9 pick an answer on a question card, Esc closes the panel.
+  document.addEventListener('keydown', (e) => {
+    const typing = e.target.closest?.('input, textarea, [contenteditable]');
+    if (e.key === 'Escape') {
+      if (typing && e.target.value) return;
+      if (panel) { e.preventDefault(); closePanel(); }
+      return;
+    }
+    if (typing || e.ctrlKey || e.altKey || e.metaKey) return;
+    const card = requestsEl.querySelector('.qc:last-of-type');
+    if (!card) return;
+    const key = e.key.toLowerCase();
+    if (card.classList.contains('perm')) {
+      const act = key === 'enter' || key === 'y' ? 'allow' : key === 'n' ? 'deny' : key === 't' ? 'terminal' : null;
+      const btn = act && card.querySelector(`[data-a="${act}"]`);
+      if (btn) { e.preventDefault(); btn.click(); }
+      return;
+    }
+    if (/^[1-9]$/.test(key)) {
+      const opt = card.querySelectorAll('.qblock')[0]?.querySelectorAll('.opt')[Number(key) - 1];
+      if (opt) { e.preventDefault(); opt.click(); }
+    } else if (key === 'enter') {
+      const send = card.querySelector('[data-send]');
+      if (send && !send.disabled) { e.preventDefault(); send.click(); }
+    } else if (key === 't') {
+      card.querySelector('[data-terminal]')?.click();
+    }
+  });
+
   // Other sessions that start waiting for the user get one notification each time.
   const waitingSeen = new Set();
   function alertWaitingSessions() {
@@ -948,6 +1011,9 @@ export function createUI(scene) {
           renderSteps();
           renderThread();
         }
+        break;
+      case 'diagnostics':
+        if (panel?.type === 'settings') renderPanel();
         break;
       case 'agent_signal': {
         const agent = session.state.agents.get(change.id);
@@ -1015,11 +1081,13 @@ export function createUI(scene) {
         renderRequests();
         renderDock();
         alertNewRequests();
+        updateTray();
         break;
       case 'sessions':
         renderBadge();
         renderDock();
         alertWaitingSessions();
+        updateTray();
         if (panel?.type === 'session') renderPanel();
         break;
       case 'status':

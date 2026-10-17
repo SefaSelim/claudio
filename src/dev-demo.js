@@ -31,6 +31,9 @@ function devBridge(command) {
   if (command.cmd === 'answer') session.inject({ type: 'chat', role: 'system', text: `Demo: istek cevaplandı (${command.behavior}).` });
   if (command.cmd === 'set_option') session.inject({ type: 'options', ...command.options });
   if (command.cmd === 'roster') session.inject(DEMO_ROSTER);
+  if (command.cmd === 'diagnostics') {
+    session.inject({ type: 'diagnostics', version: 'demo', node: 'v20.13.0', nodeOk: true, port: 47821, hooksInstalled: true, hooksCurrent: true, hooksSeen: 42, lastHookAt: Date.now() - 4000, lastHookEvent: 'PostToolUse', sessions: 2, attached: SID, uptimeMs: 60000 });
+  }
 }
 
 const DEMO_ROSTER = {
