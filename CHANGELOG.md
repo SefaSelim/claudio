@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-18
+
+The truthful office: the project's agents, skills and task list, and Claude's own states.
+
 ### Added
 
 - The bridge reads what Claude Code can use in the attached project (built-in, user, project and plugin agents, skills and slash commands) and the session's TaskCreate list, and follows the session when it changes directory.
@@ -109,7 +113,8 @@ First working prototype, covering roadmap phases 0 and 1. Commits before this re
 
 - The window position is no longer saved while the window is minimized.
 
-[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/SefaSelim/claudio/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/SefaSelim/claudio/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/SefaSelim/claudio/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/SefaSelim/claudio/compare/v0.3.0...v0.4.0
