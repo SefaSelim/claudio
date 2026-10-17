@@ -1,89 +1,76 @@
-// Demo oturumu: CLAUDIO_FAKE=1 iken gerçek SDK yerine bu senaryo çalışır.
-// API anahtarı olmadan ofisin olay akışını (alt ajanlar, araçlar, izin, soru) denemek için.
+// Demo modu (CLAUDIO_FAKE=1): sahte bir Claude Code oturumu. Hook gövdelerini köprünün gerçek
+// handleHook fonksiyonuna verir; böylece izin, soru ve mesaj iletimi gerçek kod yolundan geçer.
 
+const SESSION = 'demo-0000-claudio';
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const fakeRes = () => ({ writableEnded: false, on() {} });
 
-export async function runFake({ emit, canUseTool, inbox, signal }) {
-  let n = 0;
-  const id = () => `demo-${++n}`;
-  const hook = (event, extra) => emit({ type: 'hook', event, agent_id: null, agent_type: null, tool_name: null, tool_input: null, tool_use_id: null, ...extra });
-  const say = (text) => emit({ type: 'sdk', message: { type: 'assistant', parent_tool_use_id: null, message: { content: [{ type: 'text', text }] } } });
+export function sessions() {
+  return [
+    { sessionId: SESSION, name: 'Demo · ofis prototipi', cwd: 'C:\\Users\\Selim\\Desktop\\Claudio', status: 'busy', version: 'demo', entrypoint: 'cli', updatedAt: Date.now() },
+    { sessionId: 'demo-1111-other', name: 'Demo · başka proje', cwd: 'C:\\Projects\\pixel-runner', status: 'idle', version: 'demo', entrypoint: 'cli', updatedAt: Date.now() - 60_000 },
+  ];
+}
+
+export async function play({ sessionId, emit, handleHook, isAttached }) {
+  emit({ type: 'history', items: [{ role: 'user', text: 'Projeye bak ve Faz 2 için plan çıkar' }] });
+  if (sessionId !== SESSION) return;
+  const hook = (event, extra = {}) =>
+    handleHook({ hook_event_name: event, session_id: sessionId, permission_mode: 'default', ...extra }, fakeRes());
   const tool = async (agent, type, name, input, ms = 1400) => {
-    const tool_use_id = id();
-    hook('PreToolUse', { agent_id: agent, agent_type: type, tool_name: name, tool_input: input, tool_use_id });
+    await hook('PreToolUse', { agent_id: agent, agent_type: type, tool_name: name, tool_input: input });
     await wait(ms);
-    hook('PostToolUse', { agent_id: agent, agent_type: type, tool_name: name, tool_input: input, tool_use_id });
+    await hook('PostToolUse', { agent_id: agent, agent_type: type, tool_name: name, tool_input: input });
   };
-  const ask = (name, input, agentID = null) =>
-    canUseTool(name, input, { requestId: id(), toolUseID: id(), agentID, signal });
+  const say = (text) => isAttached(sessionId) && emit({ type: 'chat', role: 'assistant', text });
 
-  emit({ type: 'sdk', message: { type: 'system', subtype: 'init', model: 'demo', permissionMode: 'default' } });
-  await wait(900);
-  say('Merhaba! Önce projeye bir göz atıyorum, sonra planı çıkarıp küçük bir değişiklik yapacağım.');
-  await wait(1200);
-
-  hook('PreToolUse', { tool_name: 'Agent', tool_input: { subagent_type: 'Explore', description: 'Kaynak dosyaları tara' } });
-  await wait(600);
-  hook('SubagentStart', { agent_id: 'explore-1', agent_type: 'Explore' });
-  hook('PreToolUse', { tool_name: 'Agent', tool_input: { subagent_type: 'Plan', description: 'Faz 2 planını çıkar' } });
-  await wait(500);
-  hook('SubagentStart', { agent_id: 'plan-1', agent_type: 'Plan' });
+  await wait(800);
+  say('Önce projeye bir göz atıyorum, sonra planı çıkarıyorum.');
+  await hook('PreToolUse', { tool_name: 'Agent', tool_input: { subagent_type: 'Explore', description: 'Kaynak dosyaları tara' } });
+  await hook('SubagentStart', { agent_id: 'explore-1', agent_type: 'Explore' });
+  await hook('PreToolUse', { tool_name: 'Agent', tool_input: { subagent_type: 'Plan', description: 'Faz 2 planını çıkar' } });
+  await hook('SubagentStart', { agent_id: 'plan-1', agent_type: 'Plan' });
 
   await Promise.all([
     (async () => {
       await tool('explore-1', 'Explore', 'Glob', { pattern: 'src/**/*.js' });
       await tool('explore-1', 'Explore', 'Read', { file_path: 'src/scene.js' }, 1800);
-      await tool('explore-1', 'Explore', 'Grep', { pattern: 'setIgnoreCursorEvents' });
-      hook('SubagentStop', { agent_id: 'explore-1', agent_type: 'Explore' });
+      await hook('SubagentStop', { agent_id: 'explore-1', agent_type: 'Explore' });
     })(),
     (async () => {
       await tool('plan-1', 'Plan', 'Read', { file_path: 'README.md' }, 2000);
-      await tool('plan-1', 'Plan', 'Write', { file_path: 'docs/faz2.md' }, 2600);
+      await tool('plan-1', 'Plan', 'Write', { file_path: 'docs/faz2.md' }, 2400);
     })(),
   ]);
+  if (!isAttached(sessionId)) return;
 
-  const answer = await ask('AskUserQuestion', {
-    questions: [
-      {
-        question: 'Faz 2 ofisinde önce hangi oda yapılsın?',
-        header: 'Oda',
-        multiSelect: false,
-        options: [
-          { label: 'Açık ofis', description: 'Masalar, kitaplık, kahve köşesi' },
-          { label: 'Toplantı odası', description: 'Uzun masa ve beyaz tahta' },
-        ],
-      },
+  const questions = [{
+    question: 'Faz 2 ofisinde önce hangi oda yapılsın?',
+    header: 'Oda',
+    multiSelect: false,
+    options: [
+      { label: 'Açık ofis', description: 'Masalar, kitaplık, kahve köşesi' },
+      { label: 'Toplantı odası', description: 'Uzun masa ve beyaz tahta' },
     ],
-  }, 'plan-1');
-  const choice = answer.behavior === 'allow' ? Object.values(answer.updatedInput.answers ?? {})[0] : 'karar vermeden';
-  await tool('plan-1', 'Plan', 'Edit', { file_path: 'docs/faz2.md' }, 1500);
-  hook('SubagentStop', { agent_id: 'plan-1', agent_type: 'Plan' });
+  }];
+  const out = await hook('PreToolUse', { agent_id: 'plan-1', agent_type: 'Plan', tool_name: 'AskUserQuestion', tool_input: { questions } });
+  const choice = Object.values(out?.hookSpecificOutput?.updatedInput?.answers ?? {})[0] ?? 'terminalde cevaplandı';
+  await hook('SubagentStop', { agent_id: 'plan-1', agent_type: 'Plan' });
   say(`Plan hazır. Seçimin: ${choice}.`);
-  await wait(800);
 
-  const perm = await ask('Bash', { command: 'npm test' });
-  if (perm.behavior === 'allow') {
-    await tool(null, null, 'Bash', { command: 'npm test' }, 2200);
-    say('Testler geçti. Sıra sende: bir sonraki adımı yaz.');
-  } else {
-    say('Testleri çalıştırmadım. Ne yapmamı istersin?');
-  }
-  hook('Stop', {});
-  emit({ type: 'sdk', message: { type: 'result', subtype: 'success', total_cost_usd: 0 } });
+  const perm = await hook('PermissionRequest', { tool_name: 'Bash', tool_input: { command: 'npm test' } });
+  const allowed = perm?.hookSpecificOutput?.decision?.behavior === 'allow';
+  if (allowed) await tool(null, null, 'Bash', { command: 'npm test' }, 2000);
+  say(allowed ? 'Testler geçti. Sıra sende.' : 'Testleri çalıştırmadım. Ne yapmamı istersin?');
+  await hook('Stop', {});
+}
 
-  // Sonraki mesajlara kısa demo cevapları.
-  for await (const msg of inbox) {
-    const text = msg.message?.content ?? '';
-    await wait(700);
-    if (/^\[Ofis\]/.test(text)) {
-      hook('PreToolUse', { tool_name: 'SendMessage', tool_input: { description: 'Mesajı ilet' } });
-      await wait(900);
-      say(`İlettim: ${text.replace(/^\[Ofis\]\s*/, '')}`);
-    } else {
-      await tool(null, null, 'Read', { file_path: 'src/main.js' }, 1000);
-      say(`(Demo) "${text}" üzerine çalışıyorum gibi yapıyorum.`);
-    }
-    hook('Stop', {});
-    emit({ type: 'sdk', message: { type: 'result', subtype: 'success', total_cost_usd: 0 } });
-  }
+/** Ofisten mesaj gelince sahte oturum bir araç kullanır; mesaj PostToolUse ile teslim edilir. */
+export async function deliver({ sessionId, handleHook }) {
+  await wait(1200);
+  const body = { hook_event_name: 'PostToolUse', session_id: sessionId, tool_name: 'Read', tool_input: { file_path: 'src/main.js' } };
+  await handleHook({ ...body, hook_event_name: 'PreToolUse' }, fakeRes());
+  await wait(900);
+  await handleHook(body, fakeRes());
+  await handleHook({ hook_event_name: 'Stop', session_id: sessionId }, fakeRes());
 }

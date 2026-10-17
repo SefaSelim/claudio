@@ -1,220 +1,330 @@
-// Claudio Ofis yan süreci: Claude Agent SDK oturumunu tutar.
-// Tauri bu dosyayı `node` ile başlatır ve stdin/stdout üzerinden satır satır JSON konuşur.
+// Claudio Ofis köprüsü. Tauri bu dosyayı `node` ile başlatır; stdin/stdout'ta satır satır JSON konuşur.
 //
-// Gelen komutlar (stdin):
-//   { cmd: "status" }
-//   { cmd: "start", cwd, prompt, permissionMode, ask }
-//   { cmd: "send", text }
-//   { cmd: "set_mode", mode }
-//   { cmd: "answer", requestId, behavior: "allow" | "deny", updatedInput?, message? }
-//   { cmd: "interrupt" }
-//   { cmd: "stop" }
+// Claude Code oturumlarına API anahtarı olmadan bağlanır:
+//  - Oturum listesi: ~/.claude/sessions
+//  - Canlı olaylar: ~/.claude/settings.json'a eklenen http hook'ları bu köprüye POST eder
+//  - Sohbet: bağlı oturumun kayıt (transcript) dosyası izlenir
+//  - İzin ve AskUserQuestion: PermissionRequest / PreToolUse hook'u ofisten cevap gelene kadar bekletilir
+//  - Mesaj: tur sürerken PostToolUse additionalContext, tur biterken Stop "block",
+//    oturum boşta ise claudio-waiter.mjs (asyncRewake) ile iletilir
 //
-// Giden olaylar (stdout): ready, auth_required, session_started, sdk, hook,
-// permission, permission_cancelled, mode_changed, session_ended, error.
+// Gelen komutlar: status, attach {sessionId}, detach, send {text, target?}, answer {requestId, ...},
+//                 install_hooks, uninstall_hooks, set_option {answerInOffice}
+// Giden olaylar:  ready, sessions, attached, detached, history, chat, hook, request,
+//                 request_cancelled, queued, delivered, hooks_status, error
 
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import http from 'node:http';
+import path from 'node:path';
 import readline from 'node:readline';
-import { query } from '@anthropic-ai/claude-agent-sdk';
+import { fileURLToPath } from 'node:url';
+import { listSessions, findTranscript, TranscriptTail } from './sessions.mjs';
+import { hooksInstalled, installHooks, uninstallHooks } from './hooks-config.mjs';
+import { BRIDGE_PORT, tokenFile } from './paths.mjs';
 
-const emit = (obj) => process.stdout.write(JSON.stringify(obj) + '\n');
+const here = path.dirname(fileURLToPath(import.meta.url));
+const FAKE = process.env.CLAUDIO_FAKE === '1';
+
+export const emit = (obj) => process.stdout.write(JSON.stringify(obj) + '\n');
 const log = (...parts) => process.stderr.write(parts.join(' ') + '\n');
 
-// Anthropic, Agent SDK ile yapılan uygulamaların claude.ai girişi kullanmasına izin vermiyor;
-// bu yüzden yalnızca API anahtarı ya da bulut sağlayıcı kimlikleriyle çalışıyoruz.
-const CREDENTIAL_VARS = [
-  'ANTHROPIC_API_KEY',
-  'CLAUDE_CODE_USE_BEDROCK',
-  'CLAUDE_CODE_USE_VERTEX',
-  'CLAUDE_CODE_USE_FOUNDRY',
-  'CLAUDE_CODE_USE_ANTHROPIC_AWS',
-];
-// CLAUDIO_FAKE=1: gerçek SDK yerine fake.mjs'deki demo senaryosu (anahtar gerekmez).
-const FAKE = process.env.CLAUDIO_FAKE === '1';
-const hasCredentials = () => FAKE || CREDENTIAL_VARS.some((name) => process.env[name]);
-
-const ASK_RULE =
-  'Kullanıcı seni masaüstündeki Claudio Ofis uygulamasından izliyor. ' +
-  'Belirsiz ya da kullanıcının tercihine bağlı kararlarda AskUserQuestion ile kısa, çoktan seçmeli sorular sor. ' +
-  '"[Ofis] X\'a ilet:" ile başlayan mesajlar kullanıcının belirli bir alt ajana talimatıdır; ilgili ajana ilet.';
-const SELF_RULE =
-  'Kullanıcı seni masaüstündeki Claudio Ofis uygulamasından izliyor ve soru sorulmasını istemiyor. ' +
-  'Belirsiz kararlarda makul olanı seç ve kısaca nedenini yaz. ' +
-  '"[Ofis] X\'a ilet:" ile başlayan mesajlar kullanıcının belirli bir alt ajana talimatıdır; ilgili ajana ilet.';
-
-/** SDK'ye akıtılan kullanıcı mesajları için basit bir asenkron kuyruk. */
-class Inbox {
-  #items = [];
-  #waiters = [];
-  #closed = false;
-
-  push(message) {
-    const waiter = this.#waiters.shift();
-    if (waiter) waiter({ value: message, done: false });
-    else this.#items.push(message);
+// ---------- belirteç ----------
+function loadToken() {
+  try {
+    return JSON.parse(fs.readFileSync(tokenFile(), 'utf8')).token;
+  } catch {
+    const token = crypto.randomBytes(24).toString('hex');
+    fs.mkdirSync(path.dirname(tokenFile()), { recursive: true });
+    fs.writeFileSync(tokenFile(), JSON.stringify({ token }));
+    return token;
   }
+}
+const TOKEN = loadToken();
 
-  close() {
-    this.#closed = true;
-    for (const waiter of this.#waiters.splice(0)) waiter({ value: undefined, done: true });
-  }
+// ---------- durum ----------
+const options = { answerInOffice: true };
+let attached = null; // { sessionId, tail }
+const pending = new Map(); // requestId -> { resolve, kind, input }
+const queues = new Map(); // sessionId -> [{ id, text, target }]
+const waiters = new Map(); // sessionId -> res
+const knownTranscripts = new Map(); // sessionId -> transcript_path (hook'lardan)
 
-  [Symbol.asyncIterator]() {
-    return {
-      next: () => {
-        if (this.#items.length) return Promise.resolve({ value: this.#items.shift(), done: false });
-        if (this.#closed) return Promise.resolve({ value: undefined, done: true });
-        return new Promise((resolve) => this.#waiters.push(resolve));
-      },
-    };
+const isAttached = (sessionId) => attached?.sessionId === sessionId;
+
+// ---------- oturum listesi ----------
+let lastList = '';
+function pollSessions() {
+  const list = FAKE ? fakeSessions() : listSessions();
+  const key = JSON.stringify(list);
+  if (key !== lastList) {
+    lastList = key;
+    emit({ type: 'sessions', list });
   }
 }
 
-const userMessage = (text) => ({
-  type: 'user',
-  message: { role: 'user', content: text },
-  parent_tool_use_id: null,
-  origin: { kind: 'human' },
-});
-
-let session = null; // { query, inbox }
-const pending = new Map(); // requestId -> { resolve, input }
-
-function hookForwarder(event) {
-  return async (input) => {
-    emit({
-      type: 'hook',
-      event,
-      agent_id: input.agent_id ?? null,
-      agent_type: input.agent_type ?? null,
-      tool_name: input.tool_name ?? null,
-      tool_input: input.tool_input ?? null,
-      tool_use_id: input.tool_use_id ?? null,
-      message: input.message ?? null,
-      notification_type: input.notification_type ?? null,
-    });
-    return {};
-  };
+// ---------- mesaj kuyruğu ----------
+function queueFor(sessionId) {
+  if (!queues.has(sessionId)) queues.set(sessionId, []);
+  return queues.get(sessionId);
 }
 
-const forward = (event) => [{ hooks: [hookForwarder(event)] }];
+/** Hedefe uyan mesajları kuyruktan çıkarır. target null: ana ajan; string: o alt ajan. */
+function takeMessages(sessionId, target) {
+  const queue = queues.get(sessionId);
+  if (!queue?.length) return [];
+  const taken = queue.filter((m) => (m.target ?? null) === (target ?? null));
+  queues.set(sessionId, queue.filter((m) => !taken.includes(m)));
+  return taken;
+}
 
-function canUseTool(toolName, input, options) {
+const formatMessages = (msgs) =>
+  `Kullanıcı Claudio Ofis'ten yazdı:\n${msgs.map((m) => `- ${m.text}`).join('\n')}`;
+
+function markDelivered(msgs, via) {
+  for (const m of msgs) emit({ type: 'delivered', id: m.id, via });
+}
+
+function wakeWaiter(sessionId) {
+  const res = waiters.get(sessionId);
+  if (!res) return;
+  const msgs = takeMessages(sessionId, null);
+  if (!msgs.length) return;
+  waiters.delete(sessionId);
+  replyWait(res, { kind: 'message', text: formatMessages(msgs) });
+  markDelivered(msgs, 'uyandırma');
+}
+
+/** Bekçiye cevap: { kind: 'message', text } | { kind: 'timeout' } | { kind: 'superseded' } */
+function replyWait(res, payload) {
+  if (!res.writableEnded) res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(payload));
+}
+
+// ---------- izin ve soru istekleri ----------
+function holdRequest(kind, sessionId, body, res) {
+  const requestId = crypto.randomUUID();
   return new Promise((resolve) => {
-    const { requestId } = options;
-    pending.set(requestId, { resolve, input });
+    const timer = setTimeout(() => finish(null, 'zaman aşımı'), 590_000);
+    function finish(output, why) {
+      if (!pending.has(requestId)) return;
+      pending.delete(requestId);
+      clearTimeout(timer);
+      if (why) emit({ type: 'request_cancelled', requestId, why });
+      resolve(output ?? {});
+    }
+    pending.set(requestId, { finish, kind, input: body.tool_input });
+    // Claude Code isteği kendisi bırakırsa (ör. terminalden cevaplandı) kartı kaldır.
+    res.on('close', () => finish(null, 'oturum isteği bıraktı'));
     emit({
-      type: 'permission',
+      type: 'request',
       requestId,
-      toolName,
-      input,
-      agentID: options.agentID ?? null,
-      toolUseID: options.toolUseID,
-      reason: options.decisionReason ?? null,
-    });
-    options.signal?.addEventListener('abort', () => {
-      if (!pending.delete(requestId)) return;
-      emit({ type: 'permission_cancelled', requestId });
-      resolve({ behavior: 'deny', message: 'İstek iptal edildi.' });
+      kind,
+      sessionId,
+      toolName: body.tool_name,
+      input: body.tool_input,
+      agentId: body.agent_id ?? null,
+      agentType: body.agent_type ?? null,
+      suggestions: body.permission_suggestions ?? null,
     });
   });
 }
 
-async function start({ cwd, prompt, permissionMode = 'default', ask = true }) {
-  if (session) return emit({ type: 'error', message: 'Zaten açık bir oturum var.' });
-  if (!hasCredentials()) return emit({ type: 'auth_required' });
-  if (!prompt?.trim()) return emit({ type: 'error', message: 'İlk mesaj boş olamaz.' });
-
-  const inbox = new Inbox();
-  inbox.push(userMessage(prompt));
-  if (FAKE) return startFake({ cwd, permissionMode, ask, inbox });
-  const q = query({
-    prompt: inbox,
-    options: {
-      cwd,
-      permissionMode,
-      // Ayarlardan "İzinleri atla" seçilebilsin diye; başlangıç modunu değiştirmez.
-      allowDangerouslySkipPermissions: true,
-      systemPrompt: { type: 'preset', preset: 'claude_code', append: ask ? ASK_RULE : SELF_RULE },
-      disallowedTools: ask ? [] : ['AskUserQuestion'],
-      canUseTool,
-      hooks: {
-        PreToolUse: forward('PreToolUse'),
-        PostToolUse: forward('PostToolUse'),
-        SubagentStart: forward('SubagentStart'),
-        SubagentStop: forward('SubagentStop'),
-        Notification: forward('Notification'),
-        Stop: forward('Stop'),
-      },
-      env: { ...process.env, CLAUDE_AGENT_SDK_CLIENT_APP: 'claudio-ofis/0.1.0' },
-      stderr: (data) => log('[claude]', data.trimEnd()),
-    },
-  });
-  session = { query: q, inbox };
-  emit({ type: 'session_started', cwd, permissionMode, ask });
-
-  try {
-    for await (const message of q) emit({ type: 'sdk', message });
-    emit({ type: 'session_ended' });
-  } catch (err) {
-    emit({ type: 'error', message: String(err?.message ?? err) });
-    emit({ type: 'session_ended' });
-  } finally {
-    session = null;
-    for (const { resolve } of pending.values()) resolve({ behavior: 'deny', message: 'Oturum kapandı.' });
-    pending.clear();
-  }
-}
-
-async function startFake({ cwd, permissionMode, ask, inbox }) {
-  const { runFake } = await import('./fake.mjs');
-  const abort = new AbortController();
-  // Demo, query() nesnesinin kullandığımız kısmını taklit eder.
-  session = {
-    inbox,
-    query: { setPermissionMode: async () => {}, interrupt: async () => {}, close: () => { abort.abort(); inbox.close(); } },
-  };
-  emit({ type: 'session_started', cwd, permissionMode, ask });
-  // İlk mesaj senaryoyu başlatır; sonrakiler senaryonun cevap döngüsüne gider.
-  await inbox[Symbol.asyncIterator]().next();
-  try {
-    await runFake({ emit, canUseTool, inbox, signal: abort.signal });
-  } catch (err) {
-    emit({ type: 'error', message: String(err?.message ?? err) });
-  } finally {
-    session = null;
-    emit({ type: 'session_ended' });
-  }
-}
-
-function answer({ requestId, behavior, updatedInput, message }) {
+function answer({ requestId, behavior, answers, mode, message }) {
   const entry = pending.get(requestId);
   if (!entry) return;
-  pending.delete(requestId);
-  if (behavior === 'allow') entry.resolve({ behavior: 'allow', updatedInput: updatedInput ?? entry.input });
-  else entry.resolve({ behavior: 'deny', message: message || 'Kullanıcı reddetti.' });
+  if (behavior === 'terminal') return entry.finish({}); // kararı terminale bırak
+  if (entry.kind === 'question') {
+    return entry.finish(behavior === 'allow'
+      ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...entry.input, answers } } }
+      : {});
+  }
+  const decision = { behavior };
+  if (behavior === 'allow' && mode) decision.updatedPermissions = [{ type: 'setMode', mode, destination: 'session' }];
+  if (behavior === 'deny') decision.message = message || 'Kullanıcı Claudio Ofis\'ten reddetti.';
+  entry.finish({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } });
+}
+
+// ---------- hook'lar ----------
+const pick = (b) => ({
+  event: b.hook_event_name,
+  sessionId: b.session_id,
+  agent_id: b.agent_id ?? null,
+  agent_type: b.agent_type ?? null,
+  tool_name: b.tool_name ?? null,
+  tool_input: b.tool_input ?? null,
+  prompt: b.prompt ?? null,
+  permission_mode: b.permission_mode ?? null,
+  notification_type: b.notification_type ?? null,
+  message: b.message ?? null,
+});
+
+/** Bir hook olayını işler ve Claude Code'a dönülecek JSON'u verir. */
+export async function handleHook(body, res) {
+  const sessionId = body.session_id;
+  const event = body.hook_event_name;
+  if (body.transcript_path) knownTranscripts.set(sessionId, body.transcript_path);
+  if (!isAttached(sessionId)) {
+    if (event === 'SessionStart' || event === 'SessionEnd') pollSessions();
+    return {};
+  }
+  emit({ type: 'hook', ...pick(body) });
+
+  switch (event) {
+    case 'PermissionRequest':
+      if (!options.answerInOffice) return {};
+      return holdRequest('permission', sessionId, body, res);
+    case 'PreToolUse':
+      if (body.tool_name === 'AskUserQuestion' && options.answerInOffice) return holdRequest('question', sessionId, body, res);
+      return {};
+    case 'PostToolUse': {
+      const msgs = takeMessages(sessionId, body.agent_id ?? null);
+      if (!msgs.length) return {};
+      markDelivered(msgs, 'araç sonrası');
+      return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: formatMessages(msgs) } };
+    }
+    case 'SubagentStop': {
+      const msgs = takeMessages(sessionId, body.agent_id);
+      if (!msgs.length) return {};
+      markDelivered(msgs, 'alt ajan bitişi');
+      return { decision: 'block', reason: formatMessages(msgs) };
+    }
+    case 'Stop': {
+      const msgs = takeMessages(sessionId, null);
+      if (!msgs.length) return {};
+      markDelivered(msgs, 'tur sonu');
+      return { decision: 'block', reason: formatMessages(msgs) };
+    }
+    case 'SessionEnd':
+      detach('Oturum kapandı.');
+      return {};
+    default:
+      return {};
+  }
+}
+
+// ---------- bağlanma ----------
+function attach(sessionId) {
+  if (attached) detach();
+  const transcript = knownTranscripts.get(sessionId) ?? findTranscript(sessionId);
+  const session = (FAKE ? fakeSessions() : listSessions()).find((s) => s.sessionId === sessionId);
+  attached = { sessionId, tail: null };
+  emit({ type: 'attached', sessionId, name: session?.name ?? '', cwd: session?.cwd ?? '' });
+  if (FAKE) return startFake(sessionId);
+  if (!transcript) return emit({ type: 'history', items: [], note: 'Kayıt dosyası henüz yok; ilk mesajdan sonra görünür.' });
+  const tail = new TranscriptTail(transcript, (item) => isAttached(sessionId) && emit({ type: 'chat', ...item }));
+  attached.tail = tail;
+  emit({ type: 'history', items: tail.start(40) });
+}
+
+function detach(why) {
+  if (!attached) return;
+  attached.tail?.stop();
+  for (const entry of pending.values()) entry.finish({}, null);
+  const { sessionId } = attached;
+  attached = null;
+  emit({ type: 'detached', sessionId, why: why ?? null });
+}
+
+// ---------- HTTP sunucusu ----------
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    let data = '';
+    req.setEncoding('utf8');
+    req.on('data', (d) => {
+      data += d;
+      if (data.length > 5_000_000) req.destroy();
+    });
+    req.on('end', () => resolve(data));
+    req.on('error', reject);
+  });
+}
+
+const server = http.createServer(async (req, res) => {
+  if (req.headers['x-claudio-token'] !== TOKEN) return res.writeHead(401).end();
+  const url = new URL(req.url, 'http://127.0.0.1');
+  try {
+    if (req.method === 'POST' && url.pathname === '/hook') {
+      const body = JSON.parse((await readBody(req)) || '{}');
+      const out = await handleHook(body, res);
+      if (!res.writableEnded) res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(out ?? {}));
+      return;
+    }
+    if (req.method === 'GET' && url.pathname === '/wait') {
+      const sessionId = url.searchParams.get('session');
+      const previous = waiters.get(sessionId);
+      if (previous) replyWait(previous, { kind: 'superseded' });
+      waiters.set(sessionId, res);
+      const timer = setTimeout(() => {
+        if (waiters.get(sessionId) === res) waiters.delete(sessionId);
+        replyWait(res, { kind: 'timeout' });
+      }, 25 * 60_000);
+      res.on('close', () => {
+        clearTimeout(timer);
+        if (waiters.get(sessionId) === res) waiters.delete(sessionId);
+      });
+      wakeWaiter(sessionId);
+      return;
+    }
+    res.writeHead(404).end();
+  } catch (err) {
+    log('[köprü]', err.stack ?? err);
+    if (!res.writableEnded) res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
+  }
+});
+
+// Hook istemcileri bağlantıyı yeniden kullanabilir; kısa keep-alive süresi ECONNRESET yarışına yol açıyor.
+server.keepAliveTimeout = 65_000;
+server.headersTimeout = 66_000;
+server.on('error', (err) => emit({ type: 'error', message: `Köprü ${BRIDGE_PORT} portunu açamadı: ${err.message}` }));
+server.listen(BRIDGE_PORT, '127.0.0.1');
+
+// ---------- komutlar ----------
+let msgSeq = 0;
+function send({ text, target }) {
+  if (!attached) return emit({ type: 'error', message: 'Önce bir oturuma bağlan.' });
+  const msg = { id: `m${++msgSeq}`, text, target: target ?? null };
+  queueFor(attached.sessionId).push(msg);
+  emit({ type: 'queued', id: msg.id, text, target: msg.target });
+  if (!target) wakeWaiter(attached.sessionId);
+  if (FAKE) fakeDeliver(attached.sessionId);
+}
+
+function hooksStatus(error) {
+  emit({ type: 'hooks_status', installed: FAKE || hooksInstalled(), error: error ?? null });
 }
 
 async function handle(command) {
   switch (command.cmd) {
     case 'status':
-      return emit({ type: 'ready', cwd: process.cwd(), hasCredentials: hasCredentials(), running: Boolean(session) });
-    case 'start':
-      return start(command);
+      emit({ type: 'ready', fake: FAKE, attached: attached?.sessionId ?? null, answerInOffice: options.answerInOffice });
+      lastList = '';
+      pollSessions();
+      return hooksStatus();
+    case 'attach':
+      return attach(command.sessionId);
+    case 'detach':
+      return detach();
     case 'send':
-      if (!session) return emit({ type: 'error', message: 'Açık oturum yok.' });
-      return session.inbox.push(userMessage(command.text));
-    case 'set_mode':
-      if (!session) return emit({ type: 'mode_changed', mode: command.mode });
-      await session.query.setPermissionMode(command.mode);
-      return emit({ type: 'mode_changed', mode: command.mode });
+      return send(command);
     case 'answer':
       return answer(command);
-    case 'interrupt':
-      return session?.query.interrupt();
-    case 'stop':
-      if (!session) return;
-      session.inbox.close();
-      return session.query.close();
+    case 'install_hooks':
+      try {
+        installHooks({ token: TOKEN, waiterPath: path.join(here, 'claudio-waiter.mjs') });
+        return hooksStatus();
+      } catch (err) {
+        return hooksStatus(err.message);
+      }
+    case 'uninstall_hooks':
+      try {
+        uninstallHooks();
+        return hooksStatus();
+      } catch (err) {
+        return hooksStatus(err.message);
+      }
+    case 'set_option':
+      Object.assign(options, command.options ?? {});
+      return emit({ type: 'ready', fake: FAKE, attached: attached?.sessionId ?? null, answerInOffice: options.answerInOffice });
     default:
       return emit({ type: 'error', message: `Bilinmeyen komut: ${command.cmd}` });
   }
@@ -231,9 +341,22 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   handle(command).catch((err) => emit({ type: 'error', message: String(err?.message ?? err) }));
 });
 
-process.stdin.on('end', () => {
-  session?.query.close();
-  process.exit(0);
-});
+process.stdin.on('end', () => process.exit(0));
 
-emit({ type: 'ready', cwd: process.cwd(), hasCredentials: hasCredentials() });
+// ---------- demo modu ----------
+let fakeModule = null;
+function fakeSessions() {
+  return fakeModule?.sessions() ?? [];
+}
+function startFake(sessionId) {
+  fakeModule.play({ sessionId, emit, handleHook, isAttached });
+}
+function fakeDeliver(sessionId) {
+  fakeModule.deliver({ sessionId, handleHook });
+}
+if (FAKE) fakeModule = await import('./fake.mjs');
+
+setInterval(pollSessions, 2000);
+emit({ type: 'ready', fake: FAKE, attached: null, answerInOffice: options.answerInOffice });
+pollSessions();
+hooksStatus();
