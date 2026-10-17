@@ -190,3 +190,47 @@ test('diagnostics report the setup', async () => {
     assert.equal((await b.until((e) => e.type === 'diagnostics')).hooksSeen, 1);
   } finally { await b.stop(); }
 });
+
+test('a message to a subagent that has finished is refused, not left queued', async () => {
+  const b = await attached();
+  try {
+    await b.post({ hook_event_name: 'SubagentStart', session_id: SID, agent_id: 'sub1', agent_type: 'Explore' });
+    assert.deepEqual((await b.post({ hook_event_name: 'SubagentStop', session_id: SID, agent_id: 'sub1' })).json, {});
+    b.cmd({ cmd: 'send', text: 'hâlâ orada mısın?', target: 'sub1', clientId: 'c1' });
+    const err = await b.until((e) => e.type === 'error' && e.clientId === 'c1');
+    assert.match(err.message, /bitirdi/);
+    assert(!b.events.some((e) => e.type === 'queued'));
+  } finally { await b.stop(); }
+});
+
+test('a waiter that disconnected before the message does not take it', async () => {
+  const b = await attached();
+  try {
+    const http = await import('node:http');
+    const req = http.request({ host: '127.0.0.1', port: b.port, path: `/wait?session=${SID}`, headers: { 'X-Claudio-Token': b.token }, agent: false });
+    req.on('error', () => {});
+    req.end();
+    await b.wait(150);
+    req.destroy();
+    await b.wait(150);
+    b.cmd({ cmd: 'send', text: 'kaybolma' });
+    await b.until((e) => e.type === 'queued');
+    await b.wait(100);
+    assert(!b.events.some((e) => e.type === 'delivered'), 'not marked delivered by the dead waiter');
+    const r = await b.post({ hook_event_name: 'PostToolUse', session_id: SID, tool_name: 'Read' });
+    assert.match(r.json.hookSpecificOutput.additionalContext, /kaybolma/);
+  } finally { await b.stop(); }
+});
+
+test('detaching drops messages that never reached the session', async () => {
+  const b = await attached();
+  try {
+    b.cmd({ cmd: 'send', text: 'eski mesaj' });
+    await b.until((e) => e.type === 'queued');
+    b.cmd({ cmd: 'detach' });
+    await b.until((e) => e.type === 'detached');
+    b.cmd({ cmd: 'attach', sessionId: SID });
+    await b.until((e) => e.type === 'attached');
+    assert.deepEqual((await b.post({ hook_event_name: 'PostToolUse', session_id: SID, tool_name: 'Read' })).json, {});
+  } finally { await b.stop(); }
+});
