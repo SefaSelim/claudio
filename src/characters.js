@@ -149,4 +149,21 @@ export function animate(rig, st, t, k) {
     armR.rotation.x = Math.sin(t * 11 + Math.PI) * 0.5 * k;
     body.position.y = 0.22 + Math.abs(Math.sin(t * 11)) * 0.03 * k;
   } else if (st === 'wave') { armR.rotation.z = 2.4 + Math.sin(t * 8) * 0.3 * k; }
+  else if (st === 'sleep') {
+    // Dozing at the desk: head down, slow breathing, arms resting.
+    body.rotation.x = 0.32 + Math.sin(t * 0.9 + p) * 0.03 * k;
+    body.position.y = 0.2 + Math.sin(t * 0.9 + p) * 0.01 * k;
+    armL.rotation.set(-0.6, 0, -0.1);
+    armR.rotation.set(-0.6, 0, 0.1);
+  } else if (st === 'compact') {
+    // Tidying the desk: one arm sweeps side to side.
+    armR.rotation.x = -1.1;
+    armR.rotation.z = 0.2 + Math.sin(t * 5 + p) * 0.5 * k;
+    body.rotation.y = Math.sin(t * 5 + p) * 0.12 * k;
+  } else if (st === 'error') {
+    body.rotation.z = Math.sin(t * 1.5 + p) * 0.04 * k;
+    armL.rotation.z = -0.4;
+    armR.rotation.z = 0.4;
+    body.rotation.x = 0.12;
+  }
 }

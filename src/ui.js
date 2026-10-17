@@ -27,7 +27,18 @@ const SUB_CHIPS = [
   { label: 'Bitir ve raporla', text: 'Elindeki işi toparla ve hemen raporla.' },
 ];
 
-const STATE_LABEL = { think: 'düşünüyor', read: 'okuyor', write: 'yazıyor', bash: 'komut çalıştırıyor', wait: 'seni bekliyor', talk: 'görev veriyor', done: 'sıra sende' };
+const STATE_LABEL = {
+  think: 'düşünüyor', read: 'okuyor', write: 'yazıyor', bash: 'komut çalıştırıyor', wait: 'seni bekliyor', talk: 'görev veriyor',
+  done: 'sıra sende', sleep: 'uyukluyor', compact: 'bağlamı topluyor', error: 'hata aldı',
+};
+const SOURCE_LABEL = { builtin: 'yerleşik', user: 'kullanıcı', project: 'proje' };
+const sourceLabel = (s) => SOURCE_LABEL[s] ?? (String(s).startsWith('plugin:') ? `eklenti · ${s.slice(7)}` : s);
+const TASK_LABEL = { pending: 'Yapılacak', in_progress: 'Sürüyor', completed: 'Bitti' };
+const fmtTokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
+const fmtDuration = (ms) => {
+  const m = Math.round(ms / 60000);
+  return m < 1 ? '1 dk\'dan az' : m < 60 ? `${m} dk` : `${Math.floor(m / 60)} sa ${m % 60} dk`;
+};
 // "Your turn" only makes sense for the main agent; a finished subagent is simply done.
 const stateLabel = (agent) => (agent.state === 'done' && agent.kind === 'sub' ? 'bitti' : STATE_LABEL[agent.state] ?? agent.state);
 const MODES = {
@@ -72,6 +83,8 @@ export function createUI(scene) {
   let panel = null; // { type, id? }
   let wasAttached = null;
   let agentTab = 'chat';
+  let teamTab = 'agents';
+  let teamPick = null; // { kind, name } of the row whose task box is open
 
   // ---------- ajan etiketleri ----------
   const tags = new Map(); // id -> { el, bubbleTimer }
@@ -90,6 +103,7 @@ export function createUI(scene) {
     tag.el.querySelector('.nm').textContent = agent.label;
     tag.el.style.setProperty('--c', `var(--s-${agent.state})`);
     tag.el.classList.toggle('alert', agent.state === 'wait');
+    tag.el.dataset.state = agent.state;
     return tag;
   }
 
@@ -111,7 +125,10 @@ export function createUI(scene) {
       tag.el.style.top = `${p.y}px`;
     }
   });
-  scene.onPick((id) => openPanel({ type: 'agent', id }));
+  scene.onPick((id) => {
+    if (id === 'tasks') { teamTab = 'tasks'; openPanel({ type: 'team' }); return; }
+    openPanel({ type: 'agent', id });
+  });
 
   // ---------- yan çubuk ve rozet ----------
   function renderDock() {
@@ -146,7 +163,10 @@ export function createUI(scene) {
     if (!btn) return;
     const type = btn.dataset.open;
     if (type === 'chat') openPanel(session.state.attached ? { type: 'agent', id: 'main' } : { type: 'session' });
-    else openPanel({ type });
+    else if (type === 'team') {
+      if (panel?.type !== 'team') session.refreshRoster();
+      openPanel({ type });
+    } else openPanel({ type });
   });
 
   function renderBadge() {
@@ -243,6 +263,7 @@ export function createUI(scene) {
     if (panel.type === 'settings') html = settingsPanel();
     if (panel.type === 'agent') html = agentPanel();
     if (panel.type === 'meeting') html = session.state.meeting ? meetingPanel() : meetingSetupPanel();
+    if (panel.type === 'team') html = teamPanel();
     panelEl.innerHTML = `<div class="card panel" data-hit${animate ? '' : ' style="animation:none"'}>${html}</div>`;
     wirePanel();
   }
@@ -452,13 +473,123 @@ export function createUI(scene) {
     if (body) body.scrollTop = body.scrollHeight;
   }
 
+  /** Tool counts, failures, run time and, once a subagent finishes, its model and tokens. */
+  function statsRow(agent) {
+    const tools = Object.entries(agent.tools ?? {}).sort((a, b) => b[1] - a[1]);
+    if (!tools.length && !agent.model) return '';
+    const chips = tools.slice(0, 6).map(([name, n]) => `<span class="tc">${esc(name)} <b>${n}</b></span>`).join('');
+    const facts = [
+      agent.failures ? `<span class="fail">${agent.failures} başarısız</span>` : '',
+      agent.kind === 'sub' ? `<span>${fmtDuration((agent.endedAt ?? Date.now()) - agent.startedAt)}</span>` : '',
+      agent.model ? `<span>${esc(String(agent.model).replace(/^claude-/, ''))}</span>` : '',
+      agent.tokens ? `<span>${fmtTokens(agent.tokens)} token</span>` : '',
+    ].filter(Boolean).join('<i>·</i>');
+    return `<div class="stats"><div class="tcs">${chips}</div>${facts ? `<div class="facts">${facts}</div>` : ''}</div>`;
+  }
+
+  // ---------- ekip ve görevler ----------
+  function teamPanel() {
+    const s = session.state;
+    const r = s.roster;
+    const counts = { agents: r?.agents.length ?? 0, skills: (r?.skills.length ?? 0) + (r?.commands.length ?? 0), tasks: s.tasks.length };
+    const seg = `<div class="tabs-row"><div class="seg" id="teamTabs"><span class="ind"></span>` +
+      [['agents', 'Ajanlar'], ['skills', 'Beceriler'], ['tasks', 'Görevler']].map(([v, l]) =>
+        `<button type="button" data-v="${v}" aria-pressed="${teamTab === v}">${l} <span class="cnt">${counts[v] || ''}</span></button>`).join('') + '</div></div>';
+    const sub = s.attached ? esc(shortPath(r?.cwd || s.attached.cwd) || 'Bağlı oturum') : 'Önce bir oturuma bağlan';
+    let body = '';
+    if (!s.attached) body = '<p class="desc">Ofisi bir Claude Code oturumuna bağlayınca o projede kullanılabilen ajanlar, beceriler ve görev listesi burada görünür.</p>';
+    else if (teamTab === 'tasks') body = tasksList(s.tasks);
+    else if (!r) body = '<p class="desc">Liste okunuyor…</p>';
+    else if (teamTab === 'agents') body = rosterList('agent', r.agents);
+    else body = rosterList('skill', r.skills, 'Beceriler') + rosterList('command', r.commands, 'Komutlar');
+    return head('Ekip ve görevler', sub) + seg + `<div class="pbody scroll" id="teamBody">${body}</div>`;
+  }
+
+  function rosterList(kind, items, title) {
+    if (!items.length) {
+      if (kind === 'agent') return '<p class="desc">Ajan bulunamadı.</p>';
+      return title ? `<span class="lbl">${title}</span><p class="desc">${kind === 'skill' ? 'Bu projede beceri yok.' : 'Bu projede komut yok.'}</p>` : '';
+    }
+    const live = new Map();
+    for (const a of session.state.agents.values()) if (a.kind === 'sub') live.set(a.type, (live.get(a.type) ?? 0) + 1);
+    const rows = items.map((it) => {
+      const open = teamPick?.kind === kind && teamPick.name === it.name;
+      const busy = kind === 'agent' ? live.get(it.name) : 0;
+      const meta = [sourceLabel(it.source), it.model ? `model: ${it.model}` : '', it.hint ? esc(it.hint) : ''].filter(Boolean).join(' · ');
+      return `<div class="ros${open ? ' open' : ''}" data-kind="${kind}" data-name="${esc(it.name)}">` +
+        `<button type="button" class="ros-h" data-pick>${kind === 'agent' ? '<span class="mini-av"></span>' : `<span class="ros-ic">${kind === 'skill' ? '✦' : '/'}</span>`}` +
+        `<span class="grow"><b>${esc(it.name)}</b><span>${esc(it.description || 'Açıklama yok')}</span><em>${esc(meta)}</em></span>` +
+        (busy ? `<span class="st live" style="--c:var(--s-write)"><i class="dot"></i>${busy > 1 ? `${busy} çalışıyor` : 'çalışıyor'}</span>` : '<span class="go">Görev ver</span>') + '</button>' +
+        (open ? `<form class="ros-task" data-task><input placeholder="${kind === 'agent' ? 'Bu ajan ne yapsın?' : 'Ne için kullanılsın?'}" autocomplete="off" aria-label="Görev"><button class="send" type="submit" aria-label="Gönder">${ICON.send}</button></form>` : '') +
+        '</div>';
+    }).join('');
+    return (title ? `<span class="lbl">${title}</span>` : '') + `<div class="roster">${rows}</div>`;
+  }
+
+  function tasksList(tasks) {
+    if (!tasks.length) return '<p class="desc">Bu oturumun görev listesi boş. Claude bir iş planı çıkardığında (TaskCreate) görevler burada ve toplantı odasındaki tahtada görünür.</p>';
+    const done = tasks.filter((t) => t.status === 'completed').length;
+    const bar = `<div class="tprog"><i style="width:${Math.round((done / tasks.length) * 100)}%"></i></div><p class="desc">${done} / ${tasks.length} görev bitti</p>`;
+    return bar + ['in_progress', 'pending', 'completed'].map((status) => {
+      const list = tasks.filter((t) => t.status === status);
+      if (!list.length) return '';
+      return `<span class="lbl">${TASK_LABEL[status]} · ${list.length}</span><div class="tasks">` + list.map((t) =>
+        `<div class="task ${status}${t.blocked && status !== 'completed' ? ' blocked' : ''}"><i></i><span>${esc(status === 'in_progress' && t.activeForm ? t.activeForm : t.subject)}${t.blocked && status !== 'completed' ? '<small>başka bir görevi bekliyor</small>' : ''}</span></div>`).join('') + '</div>';
+    }).join('');
+  }
+
+  /** Redraw the team panel without losing a task being typed or the scroll position. */
+  function rerenderTeam() {
+    if (panel?.type !== 'team') return;
+    const input = panelEl.querySelector('[data-task] input');
+    const draft = input?.value ?? '';
+    const focused = input && document.activeElement === input;
+    const scroll = $('teamBody')?.scrollTop ?? 0;
+    renderPanel();
+    const body = $('teamBody');
+    if (body) body.scrollTop = scroll;
+    const again = panelEl.querySelector('[data-task] input');
+    if (again) {
+      again.value = draft;
+      if (focused) again.focus({ preventScroll: true });
+    }
+  }
+
+  function wireTeam(root) {
+    const tabs = $('teamTabs');
+    if (tabs) segInit(tabs, (v) => { teamTab = v; teamPick = null; renderPanel(); });
+    for (const row of root.querySelectorAll('.ros')) {
+      row.querySelector('[data-pick]').addEventListener('click', () => {
+        if (!session.state.attached) return;
+        const same = teamPick?.kind === row.dataset.kind && teamPick.name === row.dataset.name;
+        teamPick = same ? null : { kind: row.dataset.kind, name: row.dataset.name };
+        renderPanel();
+        if (!same) setTimeout(() => panelEl.querySelector('[data-task] input')?.focus({ preventScroll: true }), 30);
+      });
+      const form = row.querySelector('[data-task]');
+      if (!form) continue;
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        const text = form.querySelector('input').value.trim();
+        if (!text) return;
+        const { kind, name } = row.dataset;
+        if (kind === 'agent') session.launchAgent(name, text);
+        else session.useSkill(kind, name, text);
+        teamPick = null;
+        // Show the request where its answer will come: the main chat.
+        openPanel({ type: 'agent', id: 'main' });
+      });
+    }
+  }
+
   function renderSteps() {
     const el = $('steps');
     if (!el) return;
-    const steps = session.state.agents.get(panel.id)?.steps ?? [];
-    el.innerHTML = steps.length
-      ? steps.slice(-20).map((st) => `<div class="step ${st.status}"><span class="tm">${st.time}</span><span>${esc(st.detail)}</span></div>`).join('')
-      : '<div class="m sys">Henüz adım yok.</div>';
+    const agent = session.state.agents.get(panel.id);
+    const steps = agent?.steps ?? [];
+    el.innerHTML = (agent ? statsRow(agent) : '') + (steps.length
+      ? steps.slice(-20).map((st) => `<div class="step ${st.status}"><span class="tm">${st.time}</span><span>${esc(st.detail)}${st.error ? `<small>${esc(st.error)}</small>` : ''}</span></div>`).join('')
+      : '<div class="m sys">Henüz adım yok.</div>');
     const body = $('pbody');
     if (body) body.scrollTop = body.scrollHeight;
   }
@@ -567,6 +698,7 @@ export function createUI(scene) {
       setTimeout(() => (input.disabled ? null : input.focus({ preventScroll: true })), 60);
     }
     if (panel.type === 'meeting') wireMeeting(root);
+    if (panel.type === 'team') wireTeam(root);
     renderThread();
     renderSteps();
   }
@@ -790,6 +922,13 @@ export function createUI(scene) {
       case 'chat':
         renderThread();
         renderMeetingThread();
+        break;
+      case 'roster':
+        rerenderTeam();
+        break;
+      case 'tasks':
+        scene.setTasks(session.state.tasks);
+        rerenderTeam();
         break;
       case 'meeting': {
         syncMeetingScene();

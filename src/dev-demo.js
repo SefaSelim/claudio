@@ -30,7 +30,29 @@ function devBridge(command) {
   }
   if (command.cmd === 'answer') session.inject({ type: 'chat', role: 'system', text: `Demo: istek cevaplandı (${command.behavior}).` });
   if (command.cmd === 'set_option') session.inject({ type: 'options', ...command.options });
+  if (command.cmd === 'roster') session.inject(DEMO_ROSTER);
 }
+
+const DEMO_ROSTER = {
+  type: 'roster',
+  cwd: 'C:\\Users\\Selim\\Desktop\\Claudio',
+  agents: [
+    { name: 'Explore', description: 'Kod tabanında hızlı, salt okunur arama.', source: 'builtin' },
+    { name: 'general-purpose', description: 'Karmaşık, çok adımlı işler; arama, okuma ve düzenleme yapabilir.', source: 'builtin' },
+    { name: 'Plan', description: 'Uygulama planı çıkarır; dosya değiştirmez.', source: 'builtin' },
+    { name: 'reviewer', description: 'Değişiklikleri hata, güvenlik ve okunabilirlik açısından inceler.', model: 'sonnet', source: 'project' },
+    { name: 'docs:writer', description: 'README ve kullanım kılavuzlarını yazar.', source: 'plugin:docs' },
+  ],
+  skills: [{ name: 'release', description: 'Sürüm çıkarır: sürüm numaraları, CHANGELOG, tag.', source: 'project' }],
+  commands: [{ name: '/review', description: 'Açık değişiklikleri incele', hint: '[dosya]', source: 'user' }],
+};
+
+const DEMO_TASKS = (step) => [
+  { id: '1', subject: 'Ajan kartının kodunu bul', status: 'completed', blocked: false },
+  { id: '2', subject: 'Sekmeleri planla', activeForm: 'Sekmeler planlanıyor', status: step > 0 ? 'completed' : 'in_progress', blocked: false },
+  { id: '3', subject: 'Hızlı komutları ekle', activeForm: 'Hızlı komutlar ekleniyor', status: step > 0 ? 'in_progress' : 'pending', blocked: false },
+  { id: '4', subject: 'Derlemeyi çalıştır', status: 'pending', blocked: true },
+];
 
 async function demoMeeting() {
   session.inject({ type: 'busy', busy: true });
@@ -65,6 +87,8 @@ export async function runDevDemo() {
   session.inject({ type: 'attached', sessionId: SID, name: 'Demo · ofis prototipi', cwd: 'C:\\Users\\Selim\\Desktop\\Claudio', busy: true });
   session.inject({ type: 'history', items: [{ role: 'user', text: 'Faz 3 için ajan kartını yap' }, { role: 'assistant', text: 'Önce projeye bakıyorum.' }] });
   session.inject({ type: 'busy', busy: true });
+  session.inject(DEMO_ROSTER);
+  session.inject({ type: 'tasks', sessionId: SID, tasks: DEMO_TASKS(0) });
 
   await wait(600);
   hook('PreToolUse', { tool_name: 'Agent', tool_input: { subagent_type: 'Explore', description: 'Kaynak dosyaları tara' } });
@@ -80,6 +104,9 @@ export async function runDevDemo() {
       await tool('explore-1', 'Explore', 'Read', { file_path: 'src/ui.js' }, 2200);
       session.inject({ type: 'agent_chat', agentId: 'explore-1', role: 'assistant', text: 'Kart ui.js içinde agentPanel fonksiyonunda çiziliyor.' });
       await tool('explore-1', 'Explore', 'Grep', { pattern: 'renderThread' });
+      hook('PreToolUse', { agent_id: 'explore-1', agent_type: 'Explore', tool_name: 'Bash', tool_input: { command: 'npm test' } });
+      await wait(900);
+      hook('PostToolUseFailure', { agent_id: 'explore-1', agent_type: 'Explore', tool_name: 'Bash', error: 'Exit code 1: 2 failing' });
     })(),
     (async () => {
       await tool('plan-1', 'Plan', 'Read', { file_path: 'CLAUDE.md' }, 2600);
@@ -98,6 +125,8 @@ export async function runDevDemo() {
     suggestions: [{ type: 'addRules', rules: [{ toolName: 'Bash', ruleContent: 'npm run build' }], behavior: 'allow', destination: 'session' }],
   });
   hook('SubagentStop', { agent_id: 'explore-1', agent_type: 'Explore' });
+  session.inject({ type: 'agent_stats', agentId: 'explore-1', model: 'claude-haiku-5-5', tokens: 41800 });
+  session.inject({ type: 'tasks', sessionId: SID, tasks: DEMO_TASKS(1) });
   // plan-1 stays open so a meeting can be tried with a subagent in the room.
   await wait(3000);
   busy = false;

@@ -10,6 +10,14 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - The bridge reads what Claude Code can use in the attached project (built-in, user, project and plugin agents, skills and slash commands) and the session's TaskCreate list, and follows the session when it changes directory.
 - Failed tool calls, API errors and context compaction now reach the office; the hook installer registers the new events and upgrades older installs on connect.
+- Ekip ve görevler panel: every agent, skill and command available in the project, with a one-line box to give one a task, and the session's task list with progress.
+- The meeting-room whiteboard shows the real task list as post-its in To do, In progress and Done; a post-it flashes when it moves and clicking the board opens the list.
+- Claude dozes off 30 seconds after a turn ends, tidies the desk while the context is compacted and shows a red badge after an API error.
+- The Adımlar tab starts with a summary: calls per tool, failed calls with their error, run time, and a finished subagent's model and tokens.
+
+### Changed
+
+- Dock buttons are slightly smaller so the new Ekip button fits.
 
 ## [0.6.0] - 2026-10-17
 

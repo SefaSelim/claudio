@@ -127,15 +127,84 @@ function fairyLights(p, bulbs, from, to, y, n) {
   }
 }
 
+const NOTE_COLOR = { pending: 0xf2c14e, in_progress: 0x9fc7e8, completed: 0xa9d18e };
+const NOTE_ROWS = [0.62, 0.45, 0.29, 0.13];
+
+/** Column headings for the task board, drawn once onto the board face. */
+function boardFace() {
+  const c = document.createElement('canvas');
+  c.width = 512;
+  c.height = 272;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fbfaf6';
+  g.fillRect(0, 0, c.width, c.height);
+  g.strokeStyle = '#d9cfc2';
+  g.lineWidth = 3;
+  for (const x of [171, 341]) { g.beginPath(); g.moveTo(x, 12); g.lineTo(x, 260); g.stroke(); }
+  g.fillStyle = '#7a6a5c';
+  g.font = '600 26px "Segoe UI", sans-serif';
+  g.textAlign = 'center';
+  ['Yapılacak', 'Sürüyor', 'Bitti'].forEach((t, i) => g.fillText(t, 85 + i * 171, 34));
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.anisotropy = 4;
+  return tex;
+}
+
+/**
+ * The meeting-room whiteboard. Decorative post-its until the session has a task list,
+ * then the real one: To do, In progress and Done columns, a red pin on blocked tasks.
+ */
 function whiteboard(p, x, z) {
   const g = new THREE.Group();
   g.position.set(x, 0.95, z);
+  g.userData.pick = 'tasks';
   p.add(g);
   box(g, 1.7, 0.95, 0.05, C.deskDark, 0, 0, 0, 0.02);
-  box(g, 1.6, 0.85, 0.03, 0xfbfaf6, 0, 0.05, 0.02, 0.01);
+  const plain = box(g, 1.6, 0.85, 0.03, 0xfbfaf6, 0, 0.05, 0.02, 0.01);
+  const deco = new THREE.Group();
+  g.add(deco);
   for (const [c, sx, sy] of [[0xf2c14e, -0.55, 0.55], [0x9fc7e8, -0.25, 0.6], [0xf2a0a0, 0.1, 0.5], [0xa9d18e, 0.45, 0.62], [0xf2c14e, 0.3, 0.28], [0x9fc7e8, -0.45, 0.25]]) {
-    box(g, 0.2, 0.18, 0.02, c, sx, sy, 0.04, 0.005);
+    box(deco, 0.2, 0.18, 0.02, c, sx, sy, 0.04, 0.005);
   }
+  const face = mesh(g, new THREE.PlaneGeometry(1.6, 0.85), new THREE.MeshStandardMaterial({ map: boardFace(), roughness: 0.85 }), 0, 0.475, 0.036);
+  face.visible = false;
+  const live = new THREE.Group();
+  g.add(live);
+  let flash = [];
+  let flashEnd = 0;
+
+  function setTasks(tasks, changed = new Set()) {
+    live.clear();
+    flash = [];
+    flashEnd = performance.now() / 1000 + 3;
+    const has = tasks.length > 0;
+    deco.visible = !has;
+    face.visible = has;
+    plain.visible = !has;
+    if (!has) return;
+    ['pending', 'in_progress', 'completed'].forEach((status, col) => {
+      const list = tasks.filter((t) => t.status === status);
+      const shown = list.length > NOTE_ROWS.length ? list.slice(0, NOTE_ROWS.length - 1) : list;
+      const cx = -0.53 + col * 0.53;
+      shown.forEach((task, row) => {
+        const note = box(live, 0.34, 0.13, 0.015, NOTE_COLOR[status], cx + (row % 2 ? 0.03 : -0.03), NOTE_ROWS[row] - 0.065, 0.045, 0.004);
+        note.rotation.z = ((row * 37 + col * 11) % 7 - 3) * 0.012;
+        if (task.blocked && status !== 'completed') glow(live, 0.022, 0xd9473c, cx + 0.13, NOTE_ROWS[row] - 0.01, 0.06);
+        if (changed.has(task.id)) flash.push(note);
+      });
+      if (list.length > shown.length) box(live, 0.34, 0.13, 0.015, 0xd8d0c6, cx, NOTE_ROWS[NOTE_ROWS.length - 1] - 0.065, 0.045, 0.004);
+    });
+  }
+
+  function tick(t, k) {
+    if (!flash.length) return;
+    const over = t > flashEnd;
+    for (const n of flash) n.scale.setScalar(over ? 1 : 1 + Math.max(0, Math.sin(t * 6)) * 0.12 * k);
+    if (over) flash = [];
+  }
+
+  return { setTasks, tick, group: g };
 }
 
 // ---------- layout ----------
@@ -235,7 +304,7 @@ export function buildOffice(scene) {
   cyl(scene, 0.008, 0.008, 0.6, 4, C.dark, 2.75, 1.95, -1.35);
   mesh(scene, new THREE.CylinderGeometry(0.08, 0.32, 0.24, 16, 1, true), new THREE.MeshStandardMaterial({ color: C.shade, roughness: 0.9, side: THREE.DoubleSide }), 2.75, 1.83, -1.35);
   glow(scene, 0.07, 0xffe0a8, 2.75, 1.72, -1.35);
-  whiteboard(scene, 2.75, -D / 2 + 0.05);
+  const board = whiteboard(scene, 2.75, -D / 2 + 0.05);
   plant(scene, 4.15, 2.75, 1.05);
   plant(scene, 4.15, -2.85, 0.8);
 
@@ -271,8 +340,9 @@ export function buildOffice(scene) {
   /** Gentle twinkle for the fairy lights. */
   function tick(t, k) {
     bulbs.forEach((b, i) => b.scale.setScalar(1 + Math.sin(t * 2 + i * 1.7) * 0.18 * k));
+    board.tick(t, k);
   }
 
   setMood(true);
-  return { setMood, tick, spots: SPOTS, door: DOOR };
+  return { setMood, tick, spots: SPOTS, door: DOOR, setTasks: board.setTasks, board: board.group };
 }

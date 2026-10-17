@@ -179,10 +179,11 @@ export function createScene(canvas) {
     const r = canvas.getBoundingClientRect();
     ndc.set(((e.clientX - r.left) / r.width) * 2 - 1, -((e.clientY - r.top) / r.height) * 2 + 1);
     raycaster.setFromCamera(ndc, camera);
-    const hits = raycaster.intersectObjects([...agents.values()].map((a) => a.group), true);
+    const hits = raycaster.intersectObjects([...[...agents.values()].map((a) => a.group), office.board], true);
     let o = hits[0]?.object;
-    while (o && !o.userData.agentId) o = o.parent;
-    if (o) onPick(o.userData.agentId);
+    while (o && !o.userData.agentId && !o.userData.pick) o = o.parent;
+    if (o?.userData.agentId) onPick(o.userData.agentId);
+    else if (o?.userData.pick) onPick(o.userData.pick);
   });
 
   const pos2 = new THREE.Vector2();
@@ -256,8 +257,17 @@ export function createScene(canvas) {
   }
   requestAnimationFrame(frame);
 
+  // Post-its flash when a task moves to another column.
+  let lastStatus = new Map();
+  function setTasks(tasks) {
+    const changed = new Set(tasks.filter((t) => lastStatus.has(t.id) && lastStatus.get(t.id) !== t.status).map((t) => t.id));
+    lastStatus = new Map(tasks.map((t) => [t.id, t.status]));
+    office.setTasks(tasks, changed);
+  }
+
   return {
     addAgent,
+    setTasks,
     removeAgent,
     setState,
     select,

@@ -21,6 +21,9 @@ export const state = {
   requests: [], // { requestId, kind: 'permission' | 'question', toolName, input, agentId }
   // { topic, participants, startChat, phase: 'running' | 'ending' | 'done', summary, notes, startedAt }
   meeting: null,
+  // What Claude Code can use in the attached project: { cwd, agents, skills, commands }
+  roster: null,
+  tasks: [], // { id, subject, activeForm, status: 'pending' | 'in_progress' | 'completed', blocked }
   error: null,
 };
 
@@ -87,7 +90,8 @@ function labelFor(type) {
 }
 
 function addAgent(agent) {
-  const full = { state: 'think', text: '', steps: [], chat: [], description: '', ...agent };
+  // tools: calls per tool name; failures: calls that ended in PostToolUseFailure.
+  const full = { state: 'think', text: '', steps: [], chat: [], description: '', tools: {}, failures: 0, startedAt: Date.now(), model: null, tokens: null, ...agent };
   state.agents.set(full.id, full);
   notify('agent_added', { agent: full });
   return full;
@@ -118,6 +122,17 @@ const pendingLaunches = [];
 const now = () => new Date().toTimeString().slice(0, 5);
 const say = (id, text) => notify('say', { id, text: clip(text, 70) });
 
+// Claude dozes off when a turn has been over for a while; any new activity wakes it.
+const DOZE_AFTER = 30_000;
+let dozeTimer = 0;
+function scheduleDoze() {
+  clearTimeout(dozeTimer);
+  dozeTimer = setTimeout(() => {
+    const main = state.agents.get('main');
+    if (main?.state === 'done' && !state.requests.some((r) => r.agentId === 'main')) updateAgent('main', { state: 'sleep', text: 'Uyukluyor · yazınca uyanır' });
+  }, DOZE_AFTER);
+}
+
 function onHook(evt) {
   const id = evt.agent_id ?? 'main';
   if (evt.permission_mode && evt.permission_mode !== state.mode) {
@@ -126,7 +141,8 @@ function onHook(evt) {
   }
   switch (evt.event) {
     case 'UserPromptSubmit':
-      updateAgent('main', { state: 'think', text: 'Düşünüyor…' });
+      clearTimeout(dozeTimer);
+      updateAgent('main', { state: 'think', text: 'Düşünüyor…', error: null });
       break;
     case 'PreToolUse': {
       const agent = ensureAgent(id, evt.agent_type);
@@ -137,9 +153,38 @@ function onHook(evt) {
       const detail = describeTool(tool, evt.tool_input);
       agent.steps.push({ time: now(), tool, detail, status: 'run' });
       if (agent.steps.length > 40) agent.steps.shift();
+      agent.tools[tool] = (agent.tools[tool] ?? 0) + 1;
+      if (id === 'main') clearTimeout(dozeTimer);
       updateAgent(id, { state: TOOL_STATE[tool] ?? 'think', text: detail });
       break;
     }
+    case 'PostToolUseFailure': {
+      const agent = state.agents.get(id);
+      if (!agent) break;
+      const step = agent.steps.findLast((s) => s.tool === evt.tool_name && s.status === 'run');
+      if (step) {
+        step.status = 'fail';
+        step.error = clip(evt.error, 120);
+      }
+      agent.failures += 1;
+      updateAgent(id, { state: 'think', text: `${evt.tool_name} başarısız` });
+      say(id, `${evt.tool_name} başarısız oldu`);
+      break;
+    }
+    case 'StopFailure':
+      updateAgent('main', { state: 'error', text: `API hatası · ${evt.error ?? 'bilinmiyor'}`, error: evt.error ?? 'unknown' });
+      state.chat.push({ role: 'system', text: `Tur bir API hatasıyla bitti (${evt.error ?? 'bilinmiyor'}). Claude Code tekrar deneyebilir ya da senden bekler.` });
+      notify('chat');
+      break;
+    case 'PreCompact':
+      if (id === 'main') updateAgent('main', { state: 'compact', text: evt.trigger === 'auto' ? 'Bağlam doldu, topluyor' : 'Bağlamı topluyor' });
+      break;
+    case 'PostCompact':
+      if (id === 'main') {
+        updateAgent('main', { state: state.busy ? 'think' : 'done', text: 'Bağlam toplandı' });
+        say('main', 'Masamı topladım');
+      }
+      break;
     case 'PostToolUse': {
       const agent = state.agents.get(id);
       const step = agent?.steps.findLast((s) => s.tool === evt.tool_name && s.status === 'run');
@@ -156,7 +201,7 @@ function onHook(evt) {
       break;
     }
     case 'SubagentStop':
-      updateAgent(evt.agent_id, { state: 'done', text: 'Bitti' });
+      updateAgent(evt.agent_id, { state: 'done', text: 'Bitti', endedAt: Date.now() });
       say(evt.agent_id, 'Bitti, rapor Claude\'da');
       setTimeout(() => removeAgent(evt.agent_id), 6000);
       break;
@@ -165,6 +210,7 @@ function onHook(evt) {
       break;
     case 'Stop':
       updateAgent('main', { state: 'done', text: 'Sıra sende' });
+      scheduleDoze();
       break;
   }
 }
@@ -172,6 +218,11 @@ function onHook(evt) {
 function resetSessionView() {
   state.chat = [];
   state.requests = [];
+  state.roster = null;
+  state.tasks = [];
+  clearTimeout(dozeTimer);
+  notify('roster');
+  notify('tasks');
   if (state.meeting) {
     state.meeting = null;
     notify('meeting');
@@ -271,6 +322,18 @@ function onEvent(evt) {
       notify('decided', { id, question: evt.question });
       break;
     }
+    case 'roster':
+      state.roster = { cwd: evt.cwd, agents: evt.agents ?? [], skills: evt.skills ?? [], commands: evt.commands ?? [] };
+      notify('roster');
+      break;
+    case 'tasks':
+      if (evt.sessionId !== state.attached?.sessionId) break;
+      state.tasks = evt.tasks ?? [];
+      notify('tasks');
+      break;
+    case 'agent_stats':
+      updateAgent(evt.agentId, { model: evt.model ?? null, tokens: evt.tokens ?? null });
+      break;
     case 'agent_chat': {
       const agent = state.agents.get(evt.agentId);
       if (!agent) break;
@@ -345,6 +408,18 @@ export const attach = (sessionId) => send({ cmd: 'attach', sessionId });
 export const detach = () => send({ cmd: 'detach' });
 export const installHooks = () => send({ cmd: 'install_hooks' });
 export const uninstallHooks = () => send({ cmd: 'uninstall_hooks' });
+export const refreshRoster = () => send({ cmd: 'roster' });
+
+/** Ask Claude to launch a subagent of this type; Claude stays in charge of the launch. */
+export function launchAgent(name, task) {
+  return sendMessage(`"${name}" alt ajanını (subagent_type: ${name}) şu görevle başlat ve sonucunu bana özetle:\n${task}`);
+}
+
+/** Ask Claude to use a skill or run a slash command's instructions for this request. */
+export function useSkill(kind, name, task) {
+  const what = kind === 'command' ? `${name} komutunun talimatlarını` : `"${name}" becerisini`;
+  return sendMessage(`${what} kullanarak şunu yap:\n${task}`);
+}
 
 // ---------- meetings ----------
 // A meeting is a structured prompt to the main agent. The office walks everyone to the
