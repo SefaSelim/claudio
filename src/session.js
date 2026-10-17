@@ -170,6 +170,23 @@ function startAlarm(cause) {
   alarmTimer = setTimeout(() => endAlarm('on dakikadır yeni hata yok'), ALARM_QUIET);
 }
 
+/** /alarm in the chat: declare one by hand. */
+export function startManualAlarm(cause) {
+  startAlarm(cause || 'elle başlatıldı');
+}
+
+/** A system row only the office sees (slash command output). */
+export function systemNote(text) {
+  systemRow(text);
+}
+
+/** /temizle: clears the office's copy of the chat; the session itself is untouched. */
+export function clearChatView() {
+  state.chat = [];
+  if (state.meeting) state.meeting.startChat = 0;
+  systemRow('Ofisteki sohbet görünümü temizlendi. Oturumun kendisi değişmedi.');
+}
+
 /** Ends the alarm with a one-line postmortem. */
 export function endAlarm(why = 'elle kapatıldı') {
   if (!state.alarm) return;
@@ -525,6 +542,8 @@ function onEvent(evt) {
       if (evt.target) state.agents.get(evt.target)?.chat.push(item);
       notify('chat');
       if (evt.target) notify('agent_chat', { id: evt.target });
+      // Meeting prompts are not handed over; the meeting walk covers them.
+      if (!state.meeting) notify('handover', { to: evt.target ?? 'main', text: evt.text });
       break;
     }
     case 'delivered': {

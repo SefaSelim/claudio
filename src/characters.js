@@ -41,6 +41,7 @@ const blushMat = new THREE.MeshBasicMaterial({ color: 0xff8f7a, transparent: tru
 /** Accessories by agent type. Unknown custom agents get a stable pick from a small pool. */
 export function accessoriesFor(type) {
   if (type === 'main') return ['crown', 'mug'];
+  if (type === 'you') return ['headset'];
   if (type === 'Explore') return ['fedora', 'magnifier'];
   if (type === 'Plan') return ['notepad'];
   if (type === 'general-purpose') return ['fedora', 'headset'];
@@ -93,15 +94,19 @@ function addAccessory(body, armL, armR, kind) {
   }
 }
 
-export function makeClawd(accessories) {
+/** Felt in another colour, for the user's own character. */
+const feltIn = (color) => new THREE.MeshStandardMaterial({ color, map: feltTex, bumpMap: feltTex, bumpScale: 0.012, roughness: 1 });
+
+export function makeClawd(accessories, { color } = {}) {
+  const felt = color ? feltIn(color) : feltMat;
   const g = new THREE.Group();
   const root = new THREE.Group();
   g.add(root);
-  const legs = [-0.17, 0.17].map((x) => mesh(root, rb(0.2, 0.26, 0.22, 0.08, 8), feltMat, x, 0.13, 0));
+  const legs = [-0.17, 0.17].map((x) => mesh(root, rb(0.2, 0.26, 0.22, 0.08, 8), felt, x, 0.13, 0));
   const body = new THREE.Group();
   body.position.y = 0.22;
   root.add(body);
-  mesh(body, rb(0.82, 0.78, 0.72, 0.21, 12), feltMat, 0, 0.39, 0);
+  mesh(body, rb(0.82, 0.78, 0.72, 0.21, 12), felt, 0, 0.39, 0);
   for (const x of [-0.15, 0.15]) { const e = mesh(body, new THREE.SphereGeometry(0.045, 12, 10), smooth(C.eye), x, 0.47, 0.355); e.scale.z = 0.5; }
   const smile = mesh(body, new THREE.TorusGeometry(0.06, 0.013, 6, 14, Math.PI), smooth(C.eye), 0, 0.39, 0.36);
   smile.rotation.z = Math.PI;
@@ -110,7 +115,7 @@ export function makeClawd(accessories) {
     const pivot = new THREE.Group();
     pivot.position.set(s * 0.41, 0.56, 0);
     pivot.rotation.z = s * 0.22;
-    mesh(pivot, rb(0.17, 0.36, 0.19, 0.08, 8), feltMat, 0, -0.17, 0);
+    mesh(pivot, rb(0.17, 0.36, 0.19, 0.08, 8), felt, 0, -0.17, 0);
     body.add(pivot);
     return pivot;
   });

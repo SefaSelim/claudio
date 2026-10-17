@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- "Sen": your own felt character waits by the beanbag and walks each message you send from the office to its recipient's desk; "Beni ofiste göster" in Settings turns it off.
+- Office chat commands: /durum, /ajanlar, /görevler, /toplantı, /alarm, /alarm-bitti, /temizle and /yardım run in the office instead of going to Claude.
+
 ## [0.9.0] - 2026-10-18
 
 Comfort and distribution: a tray icon, diagnostics, keyboard shortcuts, an end-to-end test suite, CI and tagged installers.

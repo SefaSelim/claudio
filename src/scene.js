@@ -280,6 +280,54 @@ export function createScene(canvas) {
     });
   }
 
+  // ---------- the user ----------
+  // "Sen" waits by the beanbag and walks each office message over to its recipient.
+  const YOU_HOME = { id: 'you-home', kind: 'you', x: -2.6, z: 2.6, rot: Math.PI * 0.85, approach: [] };
+  const YOU_COLOR = 0x7f9cc4;
+
+  function addYou() {
+    if (agents.has('you')) return;
+    const group = makeClawd(accessoriesFor('you'), { color: YOU_COLOR });
+    group.userData.agentId = 'you';
+    group.scale.setScalar(0.001);
+    group.position.set(YOU_HOME.x, 0, YOU_HOME.z);
+    group.rotation.y = YOU_HOME.rot;
+    scene.add(group);
+    agents.set('you', { group, state: 'done', home: YOU_HOME, spot: YOU_HOME, route: [], after: null, next: null, appear: 0, fading: false, heading: YOU_HOME.rot });
+  }
+
+  function removeYou() {
+    const you = agents.get('you');
+    if (you) you.fading = true;
+  }
+
+  /** Walk a message over: across the lead desk for Claude, beside the desk for a subagent. */
+  function handOver(toId) {
+    const you = agents.get('you');
+    const to = agents.get(toId);
+    if (!you || you.fading || !to?.spot || you.route.length || meeting || to.leaving) return false;
+    let route;
+    let face;
+    if (toId === 'main' && to.spot.id === 'lead') {
+      route = [[-1.6, 2.15]];
+      face = Math.PI;
+    } else {
+      const side = to.spot.x > -1 ? -0.5 : 0.5;
+      const stop = [to.spot.x + side, to.spot.z + 0.15];
+      route = [[-0.82, 2.2], [-0.82, -0.45], ...to.spot.approach.slice(1), stop];
+      face = side > 0 ? -Math.PI / 2 : Math.PI / 2;
+    }
+    you.spot = { id: 'you-away', kind: 'you' };
+    walk(you, route, () => {
+      turnTo(you, face);
+      setTimeout(() => {
+        if (you.fading) return;
+        walk(you, [...route.slice(0, -1).reverse(), [YOU_HOME.x, YOU_HOME.z]], () => { you.spot = YOU_HOME; turnTo(you, YOU_HOME.rot); });
+      }, 1600);
+    });
+    return true;
+  }
+
   // Post-its flash when a task moves to another column.
   let lastStatus = new Map();
   function setTasks(tasks) {
@@ -292,6 +340,9 @@ export function createScene(canvas) {
     addAgent,
     setTasks,
     visit,
+    addYou,
+    removeYou,
+    handOver,
     setAlarm: office.setAlarm,
     removeAgent,
     setState,
