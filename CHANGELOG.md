@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-10-17
+
+Roadmap phase 2: the cozy office.
+
 ### Added
 
 - Cozy open-plan office ported from the design mockup: five desks, a bookshelf, a coffee corner, a beanbag, lamps, fairy lights and a glass meeting room.
@@ -42,5 +46,6 @@ First working prototype, covering roadmap phases 0 and 1. Commits before this re
 
 - The window position is no longer saved while the window is minimized.
 
-[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/SefaSelim/claudio/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/SefaSelim/claudio/releases/tag/v0.1.0
