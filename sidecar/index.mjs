@@ -113,16 +113,37 @@ function markDelivered(msgs, via) {
 function wakeWaiter(sessionId) {
   const res = waiters.get(sessionId);
   if (!res) return;
-  const msgs = takeMessages(sessionId, null);
-  if (!msgs.length) return;
   waiters.delete(sessionId);
+  // A waiter whose connection is already gone cannot take the messages; leave them queued.
+  if (!canReply(res)) return;
+  const msgs = takeMessages(sessionId, null);
+  if (!msgs.length) {
+    waiters.set(sessionId, res);
+    return;
+  }
+  // Delivered only once the reply is flushed; a connection that closes first puts the
+  // messages back at the front of the queue for the next hook or waiter.
+  let flushed = false;
+  res.once('finish', () => {
+    flushed = true;
+    markDelivered(msgs, 'uyandırma');
+  });
+  res.once('close', () => {
+    if (!flushed) requeue(sessionId, msgs);
+  });
   replyWait(res, { kind: 'message', text: formatMessages(msgs) });
-  markDelivered(msgs, 'uyandırma');
 }
+
+function requeue(sessionId, msgs) {
+  if (!isAttached(sessionId)) return;
+  queueFor(sessionId).unshift(...msgs);
+}
+
+const canReply = (res) => !res.writableEnded && !res.destroyed && res.socket?.writable !== false;
 
 /** Bekçiye cevap: { kind: 'message', text } | { kind: 'timeout' } | { kind: 'superseded' } */
 function replyWait(res, payload) {
-  if (!res.writableEnded) res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(payload));
+  if (canReply(res)) res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(payload));
 }
 
 // ---------- izin ve soru istekleri ----------
@@ -361,7 +382,11 @@ export async function handleHook(body, res) {
     }
     case 'SubagentStop': {
       const msgs = takeMessages(sessionId, body.agent_id);
-      if (!msgs.length) return {};
+      if (!msgs.length) {
+        // No hook of this subagent will fire again, so later messages to it cannot land.
+        if (body.agent_id) attached.finished.add(body.agent_id);
+        return {};
+      }
       markDelivered(msgs, 'alt ajan bitişi');
       return { decision: 'block', reason: formatMessages(msgs) };
     }
@@ -388,7 +413,7 @@ function attach(sessionId) {
   const transcript = knownTranscripts.get(sessionId) ?? findTranscript(sessionId);
   const session = (FAKE ? fakeSessions() : listSessions()).find((s) => s.sessionId === sessionId);
   // The session list knows whether the session is mid-turn right now.
-  attached = { sessionId, cwd: session?.cwd ?? '', tail: null, busy: session?.status === 'busy', subTails: new Map() };
+  attached = { sessionId, cwd: session?.cwd ?? '', tail: null, busy: session?.status === 'busy', subTails: new Map(), finished: new Set() };
   emit({ type: 'attached', sessionId, name: session?.name ?? '', cwd: session?.cwd ?? '', busy: attached.busy });
   lastTasks = '';
   lastUsageKey = '';
@@ -409,6 +434,8 @@ function detach(why) {
   for (const entry of pending.values()) entry.finish({}, null);
   const { sessionId } = attached;
   attached = null;
+  // Messages that never reached the session would otherwise land, out of date, on a later attach.
+  queues.delete(sessionId);
   emit({ type: 'detached', sessionId, why: why ?? null });
 }
 
@@ -487,6 +514,9 @@ function saveAttachments(sessionId, attachments) {
 
 function send({ text, target, attachments = [], clientId }) {
   if (!attached) return emit({ type: 'error', message: 'Önce bir oturuma bağlan.' });
+  if (target && attached.finished.has(target)) {
+    return emit({ type: 'error', message: "Bu alt ajan işini bitirdi; mesaj ona ulaşamaz. Claude'a yaz.", clientId });
+  }
   let files = [];
   try {
     files = saveAttachments(attached.sessionId, attachments);

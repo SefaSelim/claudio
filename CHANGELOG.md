@@ -6,6 +6,12 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- A message to a subagent that has already finished is refused with a note, instead of waiting in the queue forever.
+- A message picked up by a waiter whose connection closed before the reply was flushed goes back to the front of the queue instead of being marked delivered and lost.
+- Messages that had not reached the session are dropped on detach, so they no longer arrive out of date after attaching again.
+
 ## [0.10.0] - 2026-10-18
 
 Acting out the turn: your own character walks messages over, and office chat commands.
