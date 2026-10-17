@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- The bridge recognises deploys, builds, test runs and git pushes in Bash and PowerShell calls and reports how each one ended, with the first meaningful error line and a failure count.
+- Context fill and tokens per minute for the attached session, read from its transcript against the model's context window.
+- Signal props on name tags: 🚀 🔨 🧪 ⬆️ while a deploy, build, test run or push runs, then ✅ or ❌, with one-line chat rows for failures, deploys, pushes to main and builds or tests going green again.
+- Alarm: a failed deploy, or three failed tool calls in five minutes, turns the office red with a beacon on the back wall and a timer pill; it ends on a green run, a good deploy, ten quiet minutes or a click, and posts a one-line postmortem.
+- A context and tokens-per-minute meter under the session badge, amber past 70 % and red past 90 %, with a chat note once the context passes 85 %.
+- When an agent sends another a message, it walks over to the recipient's desk and back.
+
 ## [0.7.0] - 2026-10-18
 
 The truthful office: the project's agents, skills and task list, and Claude's own states.

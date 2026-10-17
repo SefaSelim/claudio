@@ -257,6 +257,29 @@ export function createScene(canvas) {
   }
   requestAnimationFrame(frame);
 
+  /**
+   * Agent-to-agent message: the sender walks over to the recipient's desk, waits a moment
+   * and walks back. Skipped during meetings, when everyone is already in one room.
+   */
+  function visit(fromId, toId) {
+    const from = agents.get(fromId);
+    const to = agents.get(toId);
+    if (meeting || !from || !to || from.fading || from.leaving || from.route.length || !to.spot || !from.home) return;
+    if (from.spot?.id !== from.home.id) return;
+    const side = to.spot.x > 0 ? -0.5 : 0.5;
+    const stop = { id: `visit-${fromId}`, kind: 'visit', x: to.spot.x + side, z: to.spot.z + 0.15, rot: side > 0 ? -Math.PI / 2 : Math.PI / 2, approach: to.spot.approach };
+    from.spot = stop;
+    walk(from, routeBetween(from.home, stop), () => {
+      turnTo(from, stop.rot);
+      setTimeout(() => {
+        if (from.leaving || from.spot !== stop) return;
+        // Meeting or not, go back to wherever home is now.
+        from.spot = from.home;
+        walk(from, [...[...stop.approach].reverse(), ...from.home.approach, [from.home.x, from.home.z]], () => turnTo(from, from.home.rot));
+      }, 1400);
+    });
+  }
+
   // Post-its flash when a task moves to another column.
   let lastStatus = new Map();
   function setTasks(tasks) {
@@ -268,6 +291,8 @@ export function createScene(canvas) {
   return {
     addAgent,
     setTasks,
+    visit,
+    setAlarm: office.setAlarm,
     removeAgent,
     setState,
     select,

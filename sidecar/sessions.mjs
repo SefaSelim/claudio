@@ -204,3 +204,102 @@ export function lastUsage(file, maxBytes = 256 * 1024) {
   }
   return null;
 }
+
+// ---------- usage meters ----------
+
+// Context windows, from Claude Code's own model table. A [1m] tag always means 1M.
+const WINDOW_1M = /^claude-(haiku-5-5|sonnet-5(-5)?|opus-4-[78]|opus-5(-5)?|fable-5(-1)?|mythos-)/;
+
+/** { size, approximate } for a model id; dated and provider-prefixed ids count as the id. */
+export function contextWindow(model, used = 0) {
+  const id = String(model ?? '').toLowerCase().replace(/^(us\.|eu\.|apac\.)?anthropic\./, '').replace(/@.*$/, '');
+  if (id.includes('[1m]') || WINDOW_1M.test(id)) return { size: 1_000_000, approximate: false };
+  if (/^claude-(3|haiku-4|sonnet-4|opus-4)/.test(id)) return { size: used > 200_000 ? 1_000_000 : 200_000, approximate: used > 200_000 };
+  return { size: used > 200_000 ? 1_000_000 : 200_000, approximate: true };
+}
+
+/**
+ * Follows the token use in a transcript: each assistant reply once (streamed replies repeat
+ * their message id), for a context meter and tokens per minute.
+ */
+export class UsageTail {
+  #file;
+  #offset = 0;
+  #rest = '';
+  #seen = new Set();
+  replies = []; // { at, tokens } for the last few minutes
+  last = null; // { model, context, at }
+
+  constructor(file) {
+    this.#file = file;
+    try {
+      // Start near the end: only the latest reply matters for the context meter.
+      this.#offset = Math.max(0, fs.statSync(file).size - 256 * 1024);
+    } catch {
+      this.#offset = 0;
+    }
+  }
+
+  poll(now = Date.now()) {
+    let size;
+    try {
+      size = fs.statSync(this.#file).size;
+    } catch {
+      return false;
+    }
+    if (size < this.#offset) { this.#offset = 0; this.#rest = ''; }
+    let changed = false;
+    if (size > this.#offset) {
+      const fd = fs.openSync(this.#file, 'r');
+      try {
+        const buf = Buffer.alloc(Math.min(size - this.#offset, 4 * 1024 * 1024));
+        fs.readSync(fd, buf, 0, buf.length, this.#offset);
+        this.#offset += buf.length;
+        const lines = (this.#rest + buf.toString('utf8')).split('\n');
+        this.#rest = lines.pop();
+        for (const line of lines) if (line.includes('"usage"') && this.#take(line)) changed = true;
+      } finally {
+        fs.closeSync(fd);
+      }
+    }
+    const before = this.replies.length;
+    this.replies = this.replies.filter((r) => now - r.at < 5 * 60_000);
+    return changed || before !== this.replies.length;
+  }
+
+  #take(line) {
+    try {
+      const rec = JSON.parse(line);
+      const msg = rec.message;
+      const u = msg?.usage;
+      if (rec.type !== 'assistant' || !u || rec.isSidechain) return false;
+      const context = (u.input_tokens ?? 0) + (u.cache_creation_input_tokens ?? 0) + (u.cache_read_input_tokens ?? 0) + (u.output_tokens ?? 0);
+      const at = rec.timestamp ? Date.parse(rec.timestamp) : Date.now();
+      this.last = { model: msg.model ?? this.last?.model ?? null, context, at };
+      const id = msg.id ?? rec.uuid;
+      if (id && this.#seen.has(id)) return true;
+      if (id) this.#seen.add(id);
+      if (this.#seen.size > 2000) this.#seen = new Set([...this.#seen].slice(-500));
+      this.replies.push({ at, tokens: context });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  /** Context fill and tokens per minute over the last five minutes. */
+  snapshot(now = Date.now()) {
+    if (!this.last) return null;
+    const win = contextWindow(this.last.model, this.last.context);
+    const recent = this.replies.filter((r) => now - r.at < 5 * 60_000);
+    const minutes = recent.length ? Math.max(1, (now - Math.min(...recent.map((r) => r.at))) / 60_000) : 5;
+    return {
+      model: this.last.model,
+      context: this.last.context,
+      window: win.size,
+      approximate: win.approximate,
+      percent: Math.min(100, Math.round((this.last.context / win.size) * 100)),
+      perMinute: Math.round(recent.reduce((n, r) => n + r.tokens, 0) / Math.min(5, minutes)),
+    };
+  }
+}

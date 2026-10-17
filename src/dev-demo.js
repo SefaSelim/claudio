@@ -54,6 +54,28 @@ const DEMO_TASKS = (step) => [
   { id: '4', subject: 'Derlemeyi çalıştır', status: 'pending', blocked: true },
 ];
 
+const shell = async (agent, command, ok, output = '', ms = 1200) => {
+  const extra = agent ? { agent_id: agent, agent_type: 'Plan' } : {};
+  hook('PreToolUse', { ...extra, tool_name: 'Bash', tool_input: { command } });
+  session.inject({ type: 'signal', phase: 'start', agentId: agent, signals: [{ kind: /test/.test(command) ? 'test' : /push/.test(command) ? 'push' : 'build', target: null, decides: true }] });
+  await wait(ms);
+  const kind = /test/.test(command) ? 'test' : /push/.test(command) ? 'push' : 'build';
+  if (ok) hook('PostToolUse', { ...extra, tool_name: 'Bash', tool_input: { command } });
+  else hook('PostToolUseFailure', { ...extra, tool_name: 'Bash', error: output });
+  session.inject({ type: 'signal', phase: 'end', agentId: agent, signals: [{ kind, target: kind === 'push' ? 'main' : 'npm', toDefault: true, decides: true, result: ok ? 'ok' : 'fail', detail: ok ? null : '2 başarısız', error: ok ? null : output }] });
+};
+
+async function demoSignals() {
+  await shell(null, 'npm run build', true);
+  hook('PreToolUse', { tool_name: 'SendMessage', tool_input: { to: 'plan-1', message: 'Testleri sen de çalıştır' } });
+  await shell('plan-1', 'npm test', false, 'Exit code 1: 2 failing');
+  await shell(null, 'npm test', false, 'Exit code 1: 2 failing');
+  await shell(null, 'npm test', false, 'Exit code 1: 2 failing');
+  await wait(6000);
+  await shell(null, 'npm test', true);
+  await shell(null, 'git push origin main', true);
+}
+
 async function demoMeeting() {
   session.inject({ type: 'busy', busy: true });
   hook('UserPromptSubmit', {});
@@ -89,6 +111,7 @@ export async function runDevDemo() {
   session.inject({ type: 'busy', busy: true });
   session.inject(DEMO_ROSTER);
   session.inject({ type: 'tasks', sessionId: SID, tasks: DEMO_TASKS(0) });
+  session.inject({ type: 'usage', sessionId: SID, model: 'claude-opus-5-5', context: 312000, window: 1000000, approximate: false, percent: 31, perMinute: 48200 });
 
   await wait(600);
   hook('PreToolUse', { tool_name: 'Agent', tool_input: { subagent_type: 'Explore', description: 'Kaynak dosyaları tara' } });
@@ -132,6 +155,9 @@ export async function runDevDemo() {
   busy = false;
   hook('Stop', {});
   session.inject({ type: 'busy', busy: false });
+
+  // Signals: a green build, then failing tests that set off the alarm, then green again.
+  if (new URLSearchParams(location.search).has('alarm')) await demoSignals();
 
   // A second, unattached session starts waiting for a permission answer in its terminal.
   await wait(1500);
