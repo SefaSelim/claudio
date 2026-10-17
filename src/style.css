@@ -87,6 +87,9 @@ html, body {
 .dk:active { transform: scale(.92); transition-duration: .08s; }
 .dk.on { background: var(--accent); color: #fff; }
 .dk svg { width: 17px; height: 17px; }
+.dk.grip { cursor: grab; color: var(--muted); }
+.dk.grip:active { cursor: grabbing; }
+.dock.dragging .tip { opacity: 0 !important; }
 .dk .tip {
   position: absolute;
   right: calc(100% + 10px);

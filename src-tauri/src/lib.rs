@@ -1,9 +1,13 @@
+mod position;
+
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 
 use serde::Deserialize;
-use tauri::{AppHandle, Manager, PhysicalPosition, WebviewWindow};
+use tauri::{AppHandle, Manager, WebviewWindow, WindowEvent};
+
+use position::PendingMove;
 
 /// Ön yüzün bildirdiği tıklanabilir bir alan (CSS piksel, pencereye göre).
 #[derive(Deserialize, Clone, Copy, Debug)]
@@ -33,20 +37,10 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
-/// Pencereyi bulunduğu monitörün çalışma alanının (görev çubuğu hariç) sağ alt köşesine koyar.
-fn place_bottom_right(win: &WebviewWindow) -> tauri::Result<()> {
-    let monitor = match win.current_monitor()? {
-        Some(m) => Some(m),
-        None => win.primary_monitor()?,
-    };
-    if let Some(m) = monitor {
-        let area = m.work_area();
-        let size = win.outer_size()?;
-        let x = area.position.x + area.size.width as i32 - size.width as i32;
-        let y = area.position.y + area.size.height as i32 - size.height as i32;
-        win.set_position(PhysicalPosition::new(x, y))?;
-    }
-    Ok(())
+/// Taşıma tutamağına çift tıklanınca pencereyi sağ alta geri götürür.
+#[tauri::command]
+fn reset_position(window: WebviewWindow) -> Result<(), String> {
+    position::reset(&window).map_err(|e| e.to_string())
 }
 
 /// Tıklamayı yok sayan pencere fare olayı almaz; bu yüzden imleci kendimiz yoklarız.
@@ -82,13 +76,20 @@ pub fn run() {
     let regions = Arc::new(HitRegions::default());
     tauri::Builder::default()
         .manage(regions.clone())
-        .invoke_handler(tauri::generate_handler![set_hit_regions, quit_app])
+        .manage(PendingMove::default())
+        .invoke_handler(tauri::generate_handler![set_hit_regions, quit_app, reset_position])
+        .on_window_event(|window, event| {
+            if let WindowEvent::Moved(pos) = event {
+                window.state::<PendingMove>().record(*pos);
+            }
+        })
         .setup(move |app| {
             let win = app
                 .get_webview_window("main")
                 .expect("main penceresi tauri.conf.json içinde tanımlı olmalı");
-            place_bottom_right(&win)?;
+            position::restore(&win)?;
             win.show()?;
+            position::start_saver(app.handle().clone());
             start_click_through(win, regions.clone());
             Ok(())
         })
