@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-10-17
+
+Roadmap phase 5: meetings.
+
 ### Added
 
 - Meetings: a Toplantı button in the dock asks for a topic and the participants, then sends Claude a structured meeting prompt.
@@ -77,7 +81,8 @@ First working prototype, covering roadmap phases 0 and 1. Commits before this re
 
 - The window position is no longer saved while the window is minimized.
 
-[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/SefaSelim/claudio/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/SefaSelim/claudio/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/SefaSelim/claudio/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/SefaSelim/claudio/compare/v0.1.0...v0.2.0
