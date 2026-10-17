@@ -7,7 +7,7 @@ use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::Mutex;
 use std::thread;
 
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
 pub struct Sidecar {
     stdin: Mutex<Option<ChildStdin>>,
@@ -15,9 +15,18 @@ pub struct Sidecar {
     error: Option<String>,
 }
 
-/// Geliştirme sırasında proje kökü. Paketlenmiş sürümde (Faz 6) yan süreç uygulamayla birlikte dağıtılacak.
-fn project_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..")
+/// Folder that holds `sidecar/`: the project root in debug builds, the bundled
+/// resources folder in an installed build.
+fn sidecar_root(app: &AppHandle) -> PathBuf {
+    if cfg!(debug_assertions) {
+        return PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("..");
+    }
+    let dir = app
+        .path()
+        .resource_dir()
+        .unwrap_or_else(|_| PathBuf::from("."));
+    // Hook commands are written into settings.json; keep the path free of the \\?\ prefix.
+    PathBuf::from(dir.to_string_lossy().trim_start_matches(r"\\?\").to_string())
 }
 
 impl Sidecar {
@@ -33,7 +42,7 @@ impl Sidecar {
     }
 
     fn try_spawn(app: &AppHandle) -> std::io::Result<Self> {
-        let root = project_root();
+        let root = sidecar_root(app);
         let mut cmd = Command::new("node");
         cmd.arg(root.join("sidecar").join("index.mjs"))
             .current_dir(&root)

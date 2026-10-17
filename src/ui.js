@@ -1,3 +1,4 @@
+import { invoke } from '@tauri-apps/api/core';
 import * as session from './session.js';
 import { alertUser, loadAlertPrefs, saveAlertPrefs, playChime } from './alerts.js';
 
@@ -282,11 +283,15 @@ export function createUI(scene) {
       `<div class="kv"><span>Oturumun izin modu</span><b>${esc(m?.label ?? s.mode ?? 'bilinmiyor')}</b></div>` +
       `<p class="desc">İzin modunu terminalde Shift+Tab ile değiştirebilirsin. Bir izin kartında "düzenlemeleri otomatik onayla" seçersen oturum o moda geçer.</p>` +
       `<div class="row"><div><b>Windows bildirimleri</b><p class="desc">İzin ve soru geldiğinde, uzun bir tur bittiğinde.</p></div><button class="sw" role="switch" id="notifySw" aria-checked="${alerts.notify}" aria-label="Windows bildirimleri"></button></div>` +
+      `<div class="row"><div><b>Windows ile başlat</b><p class="desc">Oturum açınca ofis kendiliğinden açılır.</p></div><button class="sw" role="switch" id="autoSw" aria-checked="${autostart === true}" aria-label="Windows ile başlat" ${autostart === null ? 'disabled' : ''}></button></div>` +
       `<div class="row"><div><b>Ses</b><p class="desc">Aynı anlarda kısa bir zil sesi.</p></div><button class="sw" role="switch" id="soundSw" aria-checked="${alerts.sound}" aria-label="Ses"></button></div>` +
       `</div>`;
   }
 
   const alerts = loadAlertPrefs();
+  // null until the shell answers (and in the browser preview, where there is no shell).
+  let autostart = null;
+  invoke('get_autostart').then((on) => { autostart = Boolean(on); if (panel?.type === 'settings') renderPanel(); }).catch(() => {});
 
   function agentPanel() {
     const s = session.state;
@@ -493,6 +498,18 @@ export function createUI(scene) {
       const value = !session.state.askEveryTask;
       askEverySw.setAttribute('aria-checked', value);
       session.setOption('askEveryTask', value);
+    });
+    const autoSw = $('autoSw');
+    if (autoSw) autoSw.addEventListener('click', async () => {
+      const value = !autostart;
+      autoSw.setAttribute('aria-checked', value);
+      try {
+        await invoke('set_autostart', { on: value });
+        autostart = value;
+      } catch (err) {
+        autoSw.setAttribute('aria-checked', autostart);
+        console.error('Windows ile başlatma ayarlanamadı', err);
+      }
     });
     for (const [id, key] of [['notifySw', 'notify'], ['soundSw', 'sound']]) {
       const toggle = $(id);
