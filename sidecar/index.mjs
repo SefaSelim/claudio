@@ -2,6 +2,7 @@
 // Tauri bu dosyayı `node` ile başlatır ve stdin/stdout üzerinden satır satır JSON konuşur.
 //
 // Gelen komutlar (stdin):
+//   { cmd: "status" }
 //   { cmd: "start", cwd, prompt, permissionMode, ask }
 //   { cmd: "send", text }
 //   { cmd: "set_mode", mode }
@@ -27,7 +28,9 @@ const CREDENTIAL_VARS = [
   'CLAUDE_CODE_USE_FOUNDRY',
   'CLAUDE_CODE_USE_ANTHROPIC_AWS',
 ];
-const hasCredentials = () => CREDENTIAL_VARS.some((name) => process.env[name]);
+// CLAUDIO_FAKE=1: gerçek SDK yerine fake.mjs'deki demo senaryosu (anahtar gerekmez).
+const FAKE = process.env.CLAUDIO_FAKE === '1';
+const hasCredentials = () => FAKE || CREDENTIAL_VARS.some((name) => process.env[name]);
 
 const ASK_RULE =
   'Kullanıcı seni masaüstündeki Claudio Ofis uygulamasından izliyor. ' +
@@ -123,6 +126,7 @@ async function start({ cwd, prompt, permissionMode = 'default', ask = true }) {
 
   const inbox = new Inbox();
   inbox.push(userMessage(prompt));
+  if (FAKE) return startFake({ cwd, permissionMode, ask, inbox });
   const q = query({
     prompt: inbox,
     options: {
@@ -161,6 +165,27 @@ async function start({ cwd, prompt, permissionMode = 'default', ask = true }) {
   }
 }
 
+async function startFake({ cwd, permissionMode, ask, inbox }) {
+  const { runFake } = await import('./fake.mjs');
+  const abort = new AbortController();
+  // Demo, query() nesnesinin kullandığımız kısmını taklit eder.
+  session = {
+    inbox,
+    query: { setPermissionMode: async () => {}, interrupt: async () => {}, close: () => { abort.abort(); inbox.close(); } },
+  };
+  emit({ type: 'session_started', cwd, permissionMode, ask });
+  // İlk mesaj senaryoyu başlatır; sonrakiler senaryonun cevap döngüsüne gider.
+  await inbox[Symbol.asyncIterator]().next();
+  try {
+    await runFake({ emit, canUseTool, inbox, signal: abort.signal });
+  } catch (err) {
+    emit({ type: 'error', message: String(err?.message ?? err) });
+  } finally {
+    session = null;
+    emit({ type: 'session_ended' });
+  }
+}
+
 function answer({ requestId, behavior, updatedInput, message }) {
   const entry = pending.get(requestId);
   if (!entry) return;
@@ -171,6 +196,8 @@ function answer({ requestId, behavior, updatedInput, message }) {
 
 async function handle(command) {
   switch (command.cmd) {
+    case 'status':
+      return emit({ type: 'ready', cwd: process.cwd(), hasCredentials: hasCredentials(), running: Boolean(session) });
     case 'start':
       return start(command);
     case 'send':
