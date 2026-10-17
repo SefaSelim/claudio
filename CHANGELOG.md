@@ -6,6 +6,13 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Cozy open-plan office ported from the design mockup: five desks, a bookshelf, a coffee corner, a beanbag, lamps, fairy lights and a glass meeting room.
+- Subagents walk in through the open front edge to a free desk and walk out again when they finish. When the desks are full they take meeting-room chairs, then standing spots near the coffee corner.
+- Evening/day lighting toggle on the side bar. It follows the clock by default (evening from 18:00 to 07:00); a click pins the other mood, a right-click goes back to the clock.
+- `?scene-demo` development page that shows agents walking and working in a normal browser, without Tauri or a session.
+
 ## [0.1.0] - 2026-10-17
 
 First working prototype, covering roadmap phases 0 and 1. Commits before this release were written in Turkish; from here on the history is in English.
