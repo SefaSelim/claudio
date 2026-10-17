@@ -235,7 +235,9 @@ function onEvent(evt) {
     }
     case 'queued': {
       const target = evt.target ? state.agents.get(evt.target)?.label ?? 'alt ajan' : null;
-      state.chat.push({ role: 'user', text: target ? `→ ${target}: ${evt.text}` : evt.text, pending: evt.id });
+      const files = outgoing.get(evt.clientId) ?? (evt.files ?? []).map((name) => ({ name, preview: null }));
+      outgoing.delete(evt.clientId);
+      state.chat.push({ role: 'user', text: target ? `→ ${target}: ${evt.text}` : evt.text, pending: evt.id, files });
       notify('chat');
       break;
     }
@@ -259,6 +261,11 @@ function onEvent(evt) {
       break;
     case 'error':
       state.error = evt.message;
+      if (evt.clientId) {
+        outgoing.delete(evt.clientId);
+        state.chat.push({ role: 'system', text: `Gönderilemedi: ${evt.message}` });
+        notify('chat');
+      }
       notify('error');
       break;
   }
@@ -276,9 +283,27 @@ export function setAnswerInOffice(value) {
   return send({ cmd: 'set_option', options: { answerInOffice: value } });
 }
 
-/** agentId 'main' değilse mesaj doğrudan o alt ajana (onun bir sonraki aracında) teslim edilir. */
-export function sendMessage(text, agentId = 'main') {
-  return send({ cmd: 'send', text, target: agentId === 'main' ? null : agentId });
+// Gönderilen eklerin önizlemeleri; köprü 'queued' ile clientId'yi geri yollayınca sohbet öğesine bağlanır.
+const outgoing = new Map(); // clientId -> [{ name, preview }]
+let clientSeq = 0;
+
+const toBase64 = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+    reader.onerror = () => reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+
+/**
+ * agentId 'main' değilse mesaj doğrudan o alt ajana (onun bir sonraki aracında) teslim edilir.
+ * files: { file: File, preview?: string }[]
+ */
+export async function sendMessage(text, agentId = 'main', files = []) {
+  const clientId = `c${++clientSeq}`;
+  outgoing.set(clientId, files.map((f) => ({ name: f.file.name, preview: f.preview ?? null })));
+  const attachments = await Promise.all(files.map(async (f) => ({ name: f.file.name, mime: f.file.type, data: await toBase64(f.file) })));
+  return send({ cmd: 'send', text, target: agentId === 'main' ? null : agentId, attachments, clientId });
 }
 
 export function answerRequest(requestId, result) {

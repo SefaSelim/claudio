@@ -8,7 +8,10 @@ const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<
 const ICON = {
   send: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"><path d="M2.5 8l11-5-4 11-2-4.5z"/></svg>',
   x: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
+  clip: '<svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M13 7.5l-5.2 5.2a3.2 3.2 0 01-4.5-4.5l5.6-5.6a2.1 2.1 0 013 3l-5.6 5.6a1 1 0 01-1.5-1.5L9.9 4.6"/></svg>',
 };
+const MAX_FILES = 6;
+const MAX_BYTES = 15 * 1024 * 1024;
 
 const STATE_LABEL = { think: 'düşünüyor', read: 'okuyor', write: 'yazıyor', bash: 'komut çalıştırıyor', wait: 'seni bekliyor', talk: 'görev veriyor', done: 'sıra sende' };
 const MODES = {
@@ -125,6 +128,7 @@ export function createUI(scene) {
   // ---------- paneller ----------
   function openPanel(next) {
     const same = panel && next && panel.type === next.type && panel.id === next.id;
+    if (!same) drafts = [];
     panel = same ? null : next;
     if (panel?.type === 'agent' && !session.state.agents.has(panel.id)) panel = null;
     scene.select(panel?.type === 'agent' ? panel.id : null);
@@ -145,7 +149,49 @@ export function createUI(scene) {
     `<div class="ph">${avatar ? '<div class="av"><i></i></div>' : ''}<div class="t"><h3>${title}</h3><div class="s">${sub}</div></div>${extra}<button class="x" data-close aria-label="Kapat">${ICON.x}</button></div>`;
 
   const composer = (placeholder, disabled) =>
-    `<form class="composer" id="msgForm"><input placeholder="${esc(placeholder)}" autocomplete="off" aria-label="${esc(placeholder)}" ${disabled ? 'disabled' : ''}><button class="send" type="submit" aria-label="Gönder" ${disabled ? 'disabled' : ''}>${ICON.send}</button></form>`;
+    `<div class="attach-row" id="attachRow" hidden></div>` +
+    `<form class="composer" id="msgForm">` +
+    `<button type="button" class="clipbtn" id="clipBtn" aria-label="Dosya ekle" title="Dosya ekle (resim yapıştırmak için Ctrl+V)" ${disabled ? 'disabled' : ''}>${ICON.clip}</button>` +
+    `<input type="file" id="fileInput" multiple hidden>` +
+    `<input id="msgInput" placeholder="${esc(placeholder)}" autocomplete="off" aria-label="${esc(placeholder)}" ${disabled ? 'disabled' : ''}>` +
+    `<button class="send" type="submit" aria-label="Gönder" ${disabled ? 'disabled' : ''}>${ICON.send}</button></form>`;
+
+  // Gönderilmeyi bekleyen ekler (panel değişince temizlenir).
+  let drafts = []; // { file, preview }
+
+  function addFiles(list) {
+    const room = MAX_FILES - drafts.length;
+    const files = [...list].slice(0, Math.max(0, room));
+    for (const file of files) {
+      if (file.size > MAX_BYTES) { sayBubble(panel?.id ?? 'main', `${file.name} 15 MB'tan büyük`); continue; }
+      const draft = { file, preview: null };
+      drafts.push(draft);
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = () => { draft.preview = reader.result; renderDrafts(); };
+        reader.readAsDataURL(file);
+      }
+    }
+    renderDrafts();
+  }
+
+  function renderDrafts() {
+    const row = $('attachRow');
+    if (!row) return;
+    row.hidden = !drafts.length;
+    row.innerHTML = drafts.map((d, i) =>
+      `<span class="att">${d.preview ? `<img src="${d.preview}" alt="">` : '<i class="fileic"></i>'}<span class="an">${esc(d.file.name || 'yapıştırılan resim')}</span><button type="button" data-rm="${i}" aria-label="Kaldır">${ICON.x}</button></span>`).join('');
+    for (const b of row.querySelectorAll('[data-rm]')) {
+      b.addEventListener('click', () => { drafts.splice(Number(b.dataset.rm), 1); renderDrafts(); });
+    }
+  }
+
+  /** Panodan yapıştırılan resimlere ad verir (pano dosyalarının adı çoğu zaman "image.png"). */
+  function namedPaste(file) {
+    const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
+    const stamp = new Date().toISOString().slice(11, 19).replaceAll(':', '');
+    return new File([file], `yapistirilan-${stamp}.${ext}`, { type: file.type });
+  }
 
   function renderPanel(animate = false) {
     if (!panel) { panelEl.innerHTML = ''; return; }
@@ -213,7 +259,10 @@ export function createUI(scene) {
           const cls = m.role === 'user' ? 'me' : m.role === 'system' ? 'sys' : 'ag';
           const status = m.role === 'user' && (m.pending || m.via)
             ? `<span class="dl">${m.pending ? 'iletilmeyi bekliyor…' : `iletildi · ${esc(m.via)}`}</span>` : '';
-          return `<div class="m ${cls}${m.pending ? ' pending' : ''}">${esc(m.text)}${status}</div>`;
+          const files = m.files?.length
+            ? `<span class="mfiles">${m.files.map((f) => (f.preview ? `<img src="${f.preview}" alt="${esc(f.name)}" title="${esc(f.name)}">` : `<span class="mfile">${esc(f.name)}</span>`)).join('')}</span>`
+            : '';
+          return `<div class="m ${cls}${m.pending ? ' pending' : ''}">${files}${esc(m.text)}${status}</div>`;
         }).join('')
       : '<div class="m sys">Henüz mesaj yok.</div>';
     const body = $('pbody');
@@ -256,16 +305,38 @@ export function createUI(scene) {
     });
     const msg = $('msgForm');
     if (msg) {
+      const input = $('msgInput');
+      const fileInput = $('fileInput');
+      renderDrafts();
+      $('clipBtn').addEventListener('click', () => fileInput.click());
+      fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
+      // Ctrl+V ile resim ya da dosya yapıştırma; düz metin normal yapışır.
+      root.addEventListener('paste', (e) => {
+        const files = [...(e.clipboardData?.files ?? [])];
+        if (!files.length || input.disabled) return;
+        e.preventDefault();
+        addFiles(files.map((f) => (f.type.startsWith('image/') && /^image\.\w+$/.test(f.name) ? namedPaste(f) : f)));
+      });
+      root.addEventListener('dragover', (e) => { if (e.dataTransfer?.types.includes('Files')) { e.preventDefault(); root.classList.add('dropping'); } });
+      root.addEventListener('dragleave', (e) => { if (!root.contains(e.relatedTarget)) root.classList.remove('dropping'); });
+      root.addEventListener('drop', (e) => {
+        root.classList.remove('dropping');
+        if (!e.dataTransfer?.files.length || input.disabled) return;
+        e.preventDefault();
+        addFiles(e.dataTransfer.files);
+      });
       msg.addEventListener('submit', (e) => {
         e.preventDefault();
-        const input = msg.querySelector('input');
         const text = input.value.trim();
-        if (!text) return;
+        if (!text && !drafts.length) return;
+        const files = drafts;
+        drafts = [];
         input.value = '';
-        session.sendMessage(text, panel.id);
+        renderDrafts();
+        session.sendMessage(text || 'Ekteki dosyalara bak.', panel.id, files);
         if (panel.id !== 'main') sayBubble(panel.id, 'Mesajın bir sonraki adımımda bana ulaşacak');
       });
-      setTimeout(() => msg.querySelector('input:not([disabled])')?.focus({ preventScroll: true }), 60);
+      setTimeout(() => (input.disabled ? null : input.focus({ preventScroll: true })), 60);
     }
     renderThread();
     renderSteps();

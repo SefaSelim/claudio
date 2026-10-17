@@ -166,6 +166,24 @@ code { font-family: var(--f-mono); font-size: 11.5px; }
 .send:hover svg { transform: translateX(2px) rotate(-8deg); }
 .send:active { transform: scale(.92); }
 .send:disabled, .composer input:disabled { opacity: .45; cursor: default; }
+.clipbtn { width: 32px; flex: none; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--muted); cursor: pointer; display: grid; place-items: center; transition: transform .12s var(--ease-out), color .15s, border-color .15s; }
+.clipbtn:hover { color: var(--accent); border-color: var(--accent); }
+.clipbtn:hover svg { transform: rotate(-12deg); }
+.clipbtn:active { transform: scale(.92); }
+.clipbtn:disabled { opacity: .45; cursor: default; }
+.clipbtn svg { width: 15px; height: 15px; transition: transform .25s var(--spring); }
+.attach-row { display: flex; gap: 6px; flex-wrap: wrap; padding: 8px 12px 0; border-top: 1px solid var(--line); }
+.att { display: inline-flex; align-items: center; gap: 6px; max-width: 160px; padding: 3px 4px 3px 3px; border-radius: 9px; border: 1px solid var(--line); background: var(--surface); font-size: 11px; animation: pop .3s var(--spring); }
+.att img { width: 28px; height: 28px; border-radius: 6px; object-fit: cover; flex: none; }
+.att .fileic { width: 22px; height: 26px; border-radius: 4px; background: var(--surface-2); border: 1px solid var(--line); flex: none; }
+.att .an { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.att button { width: 18px; height: 18px; flex: none; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; display: grid; place-items: center; }
+.att button:hover { background: var(--surface-2); color: var(--warn); }
+.att button svg { width: 11px; height: 11px; }
+.panel.dropping { outline: 2px dashed var(--accent); outline-offset: -4px; }
+.mfiles { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+.mfiles img { max-width: 120px; max-height: 90px; border-radius: 8px; object-fit: cover; }
+.mfile { font-size: 11px; padding: 2px 7px; border-radius: 6px; background: rgba(255, 255, 255, .25); }
 
 /* izin ve soru kartları */
 .qc { padding: 10px 12px; display: grid; gap: 7px; animation: qIn .42s var(--spring) both; animation-delay: calc(var(--i, 0) * 60ms); max-height: 300px; overflow: auto; }

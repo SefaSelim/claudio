@@ -21,7 +21,7 @@ import readline from 'node:readline';
 import { fileURLToPath } from 'node:url';
 import { listSessions, findTranscript, TranscriptTail } from './sessions.mjs';
 import { hooksInstalled, installHooks, uninstallHooks } from './hooks-config.mjs';
-import { BRIDGE_PORT, tokenFile } from './paths.mjs';
+import { BRIDGE_PORT, tokenFile, attachmentsDir } from './paths.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const FAKE = process.env.CLAUDIO_FAKE === '1';
@@ -280,11 +280,38 @@ server.listen(BRIDGE_PORT, '127.0.0.1');
 
 // ---------- komutlar ----------
 let msgSeq = 0;
-function send({ text, target }) {
+const MAX_FILES = 6;
+const MAX_BYTES = 15 * 1024 * 1024;
+
+/** Ekleri diske yazar ve yollarını döndürür. Hook'lar yalnızca metin taşıyabildiği için Claude dosyaları Read ile açar. */
+function saveAttachments(sessionId, attachments) {
+  if (attachments.length > MAX_FILES) throw new Error(`En fazla ${MAX_FILES} dosya eklenebilir.`);
+  const dir = path.join(attachmentsDir(), sessionId.slice(0, 8));
+  fs.mkdirSync(dir, { recursive: true });
+  return attachments.map((a, i) => {
+    const data = Buffer.from(a.data ?? '', 'base64');
+    if (data.length > MAX_BYTES) throw new Error(`${a.name} 15 MB'tan büyük.`);
+    const safe = String(a.name || 'dosya').replace(/[^\p{L}\p{N}._-]+/gu, '_').slice(-80);
+    const file = path.join(dir, `${Date.now()}-${i}-${safe}`);
+    fs.writeFileSync(file, data);
+    return file;
+  });
+}
+
+function send({ text, target, attachments = [], clientId }) {
   if (!attached) return emit({ type: 'error', message: 'Önce bir oturuma bağlan.' });
-  const msg = { id: `m${++msgSeq}`, text, target: target ?? null };
+  let files = [];
+  try {
+    files = saveAttachments(attached.sessionId, attachments);
+  } catch (err) {
+    return emit({ type: 'error', message: err.message, clientId });
+  }
+  const body = files.length
+    ? `${text}\n\nEkli dosyalar (Read aracıyla açabilirsin):\n${files.map((f) => `- ${f}`).join('\n')}`
+    : text;
+  const msg = { id: `m${++msgSeq}`, text: body, target: target ?? null };
   queueFor(attached.sessionId).push(msg);
-  emit({ type: 'queued', id: msg.id, text, target: msg.target });
+  emit({ type: 'queued', id: msg.id, text, target: msg.target, clientId: clientId ?? null, files: files.map((f) => path.basename(f)) });
   if (!target) wakeWaiter(attached.sessionId);
   if (FAKE) fakeDeliver(attached.sessionId);
 }
