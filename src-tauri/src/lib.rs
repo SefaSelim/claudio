@@ -1,6 +1,7 @@
 mod autostart;
 mod position;
 mod sidecar;
+mod tray;
 
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -44,6 +45,12 @@ fn quit_app(app: AppHandle) {
 #[tauri::command]
 fn sidecar_send(line: String, sidecar: tauri::State<'_, Sidecar>) -> Result<(), String> {
     sidecar.send(&line)
+}
+
+/// Tray tooltip text, such as "2 istek seni bekliyor".
+#[tauri::command]
+fn set_tray_status(app: AppHandle, text: String) {
+    tray::set_status(&app, &text);
 }
 
 #[tauri::command]
@@ -103,7 +110,8 @@ pub fn run() {
             reset_position,
             sidecar_send,
             get_autostart,
-            set_autostart
+            set_autostart,
+            set_tray_status
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::Moved(pos) = event {
@@ -121,6 +129,7 @@ pub fn run() {
             win.show()?;
             position::start_saver(app.handle().clone());
             start_click_through(win, regions.clone());
+            tray::create(app.handle())?;
             app.manage(Sidecar::spawn(app.handle()));
             Ok(())
         })

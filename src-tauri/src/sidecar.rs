@@ -46,6 +46,8 @@ impl Sidecar {
         let mut cmd = Command::new("node");
         cmd.arg(root.join("sidecar").join("index.mjs"))
             .current_dir(&root)
+            // The bridge reports its version in the diagnostics panel.
+            .env("CLAUDIO_VERSION", env!("CARGO_PKG_VERSION"))
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());

@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Tray icon: left click shows or hides the office; the menu toggles always on top, moves the office back to the corner and quits. Its tooltip says how many requests and sessions wait for you.
+
 ## [0.8.0] - 2026-10-18
 
 Signals, alarm and meters: the office reads what shell commands mean and how much context Claude uses.
