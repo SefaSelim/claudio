@@ -9,6 +9,9 @@ import { buildOffice, routeFromDoor, routeToDoor, routeBetween, MEETING_HEAD, ME
 const W = 414, H = 268;
 const WALK_SPEED = 2.2; // floor units per second
 const TURN_SPEED = 10; // how fast characters turn toward where they walk
+// Frame budget: full rate while something moves across the floor, less while agents only
+// breathe at their desks, and a trickle when the office is empty.
+const FPS_ACTIVE = 60, FPS_IDLE = 30, FPS_EMPTY = 12;
 
 export function createScene(canvas) {
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
@@ -221,7 +224,14 @@ export function createScene(canvas) {
 
   const frameListeners = new Set();
   let last = performance.now();
+  function frameBudget() {
+    if (!agents.size) return 1000 / FPS_EMPTY;
+    for (const a of agents.values()) if (a.route.length || a.fading || a.appear < 1) return 1000 / FPS_ACTIVE;
+    return 1000 / FPS_IDLE;
+  }
   function frame(now) {
+    // A small tolerance keeps 60 Hz displays from dropping every other frame.
+    if (now - last < frameBudget() - 2) { requestAnimationFrame(frame); return; }
     const dt = Math.min(0.05, (now - last) / 1000);
     last = now;
     const t = now / 1000;
