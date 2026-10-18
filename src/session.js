@@ -281,10 +281,19 @@ export const addWorker = (key) => send({ cmd: 'worker_add', key });
 export const removeWorker = (agentId) => send({ cmd: 'worker_remove', id: workerOf(agentId) });
 export const stopWorker = (agentId) => send({ cmd: 'worker_stop', id: workerOf(agentId) });
 export const refreshLibrary = () => send({ cmd: 'library' });
+let importTimer = 0;
 export const importLibrary = (url) => {
   state.libraryBusy = url;
   state.libraryError = null;
   notify('library');
+  // A clone takes about half a minute; four minutes without an answer means it is lost.
+  clearTimeout(importTimer);
+  importTimer = setTimeout(() => {
+    if (state.libraryBusy !== url) return;
+    state.libraryBusy = null;
+    state.libraryError = 'İçe aktarma yanıt vermedi. Ofisi kapatıp yeniden açıp tekrar dene.';
+    notify('library');
+  }, 4 * 60_000);
   return send({ cmd: 'library_import', url });
 };
 export const removeLibrarySource = (id) => send({ cmd: 'library_remove', id });
@@ -736,6 +745,12 @@ function onEvent(evt) {
       break;
     case 'error':
       state.error = evt.message;
+      // An import waits for its own reply; any bridge error must not leave it spinning.
+      if (state.libraryBusy) {
+        state.libraryBusy = null;
+        state.libraryError = evt.message;
+        notify('library');
+      }
       if (evt.clientId) {
         outgoing.delete(evt.clientId);
         state.chat.push({ role: 'system', text: `Gönderilemedi: ${evt.message}` });
