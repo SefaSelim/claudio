@@ -23,6 +23,8 @@ import { fileURLToPath } from 'node:url';
 import { CLAUDE_DIR, listSessions, findTranscript, TranscriptTail, subagentTranscript, lastUsage, UsageTail } from './sessions.mjs';
 import { readRoster, readTasks } from './roster.mjs';
 import { classify, outcome } from './signals.mjs';
+import { WorkerPool } from './workers.mjs';
+import { listLibrary, importRepo, removeSource, getDefinition } from './library.mjs';
 import { hooksInstalled, hooksCurrent, installHooks, uninstallHooks } from './hooks-config.mjs';
 import { BRIDGE_PORT, tokenFile, attachmentsDir } from './paths.mjs';
 
@@ -62,6 +64,8 @@ const waiters = new Map(); // sessionId -> res
 const knownTranscripts = new Map(); // sessionId -> transcript_path (hook'lardan)
 
 const isAttached = (sessionId) => attached?.sessionId === sessionId;
+// Office agents: their own headless sessions, created and resumed by the bridge.
+const pool = new WorkerPool((evt) => emit(evt));
 
 // ---------- oturum listesi ----------
 // Sessions the office is not attached to still send hooks; remember which of them are
@@ -80,7 +84,7 @@ function trackWaiting(sessionId, event, body) {
 
 let lastList = '';
 function pollSessions() {
-  const list = (FAKE ? fakeSessions() : listSessions()).map((x) => ({ ...x, waiting: isAttached(x.sessionId) ? null : waiting.get(x.sessionId) ?? null }));
+  const list = (FAKE ? fakeSessions() : listSessions()).filter((x) => !pool.isWorkerSession(x.sessionId)).map((x) => ({ ...x, waiting: isAttached(x.sessionId) ? null : waiting.get(x.sessionId) ?? null }));
   const key = JSON.stringify(list);
   if (key !== lastList) {
     lastList = key;
@@ -147,7 +151,7 @@ function replyWait(res, payload) {
 }
 
 // ---------- izin ve soru istekleri ----------
-function holdRequest(kind, sessionId, body, res) {
+function holdRequest(kind, sessionId, body, res, agentId = body.agent_id ?? null) {
   const requestId = crypto.randomUUID();
   return new Promise((resolve) => {
     const timer = setTimeout(() => finish(null, 'zaman aşımı'), 590_000);
@@ -168,7 +172,7 @@ function holdRequest(kind, sessionId, body, res) {
       sessionId,
       toolName: body.tool_name,
       input: body.tool_input,
-      agentId: body.agent_id ?? null,
+      agentId,
       agentType: body.agent_type ?? null,
       suggestions: body.permission_suggestions ?? null,
     });
@@ -334,6 +338,87 @@ const pick = (b) => ({
 });
 
 /** Bir hook olayını işler ve Claude Code'a dönülecek JSON'u verir. */
+/** Hooks from an office agent's own session: requests go to the office, messages land. */
+function workerHook(worker, event, body, res) {
+  const agentId = `w:${worker.id}`;
+  switch (event) {
+    case 'PermissionRequest':
+      // A headless session cannot ask in a terminal, so the office always answers.
+      return holdRequest('permission', body.session_id, body, res, agentId);
+    case 'PreToolUse':
+      if (body.tool_name !== 'AskUserQuestion') return {};
+      if (!options.askQuestions) {
+        emit({ type: 'decided_alone', agentId, question: body.tool_input?.questions?.[0]?.question ?? '' });
+        return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: NO_QUESTIONS } };
+      }
+      return holdRequest('question', body.session_id, body, res, agentId);
+    case 'PostToolUse': {
+      const text = pool.takeQueued(body.session_id);
+      return text ? { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: text } } : {};
+    }
+    case 'Stop': {
+      const text = pool.takeQueued(body.session_id);
+      return text ? { decision: 'block', reason: text } : {};
+    }
+    default:
+      return {};
+  }
+}
+
+function workerCwd() {
+  if (attached?.cwd) return attached.cwd;
+  if (attached) return listSessions().find((s) => s.sessionId === attached.sessionId)?.cwd ?? null;
+  return null;
+}
+
+async function workerCommand(command) {
+  switch (command.cmd) {
+    case 'workers':
+      return emit(pool.snapshot());
+    case 'worker_add': {
+      const cwd = workerCwd();
+      const def = getDefinition(command.key, cwd);
+      if (!def) throw new Error('Bu ajan kütüphanede bulunamadı.');
+      pool.add(def, { defKey: command.key, cwd });
+      return;
+    }
+    case 'worker_remove':
+      return pool.remove(command.id);
+    case 'worker_stop':
+      return pool.stop(command.id);
+    case 'worker_send': {
+      const w = pool.get(command.id);
+      if (!w) throw new Error('Bu ajan artık ofiste değil.');
+      const files = saveAttachments(`worker-${w.id}`, command.attachments ?? []);
+      const text = files.length ? `${command.text}\n\nEkli dosyalar (Read aracıyla açabilirsin):\n${files.map((f) => `- ${f}`).join('\n')}` : command.text;
+      return pool.send(command.id, text, command.clientId ?? null);
+    }
+    case 'library':
+      return emit({ type: 'library', ...listLibrary(workerCwd()) });
+    case 'library_import': {
+      emit({ type: 'library_progress', url: command.url, busy: true });
+      try {
+        const r = await importRepo(command.url);
+        emit({ type: 'library_progress', url: command.url, busy: false, imported: r });
+      } catch (err) {
+        emit({ type: 'library_progress', url: command.url, busy: false, error: err.message });
+      }
+      return emit({ type: 'library', ...listLibrary(workerCwd()) });
+    }
+    case 'library_remove':
+      removeSource(command.id);
+      return emit({ type: 'library', ...listLibrary(workerCwd()) });
+    case 'meeting_start':
+      return pool.meetingStart(command.topic, command.participants ?? []);
+    case 'meeting_interject':
+      return pool.meetingInterject(command.text);
+    case 'meeting_end':
+      return pool.meetingEnd();
+    default:
+      return false;
+  }
+}
+
 // What the diagnostics panel shows about the hook pipeline.
 const hookStats = { seen: 0, lastAt: null, lastEvent: null };
 
@@ -343,6 +428,8 @@ export async function handleHook(body, res) {
   hookStats.seen += 1;
   hookStats.lastAt = Date.now();
   hookStats.lastEvent = event ?? null;
+  const worker = pool.bySession(sessionId);
+  if (worker) return workerHook(worker, event, body, res);
   if (body.transcript_path) knownTranscripts.set(sessionId, body.transcript_path);
   if (!isAttached(sessionId)) {
     trackWaiting(sessionId, event, body);
@@ -465,6 +552,7 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'GET' && url.pathname === '/wait') {
       const sessionId = url.searchParams.get('session');
+      if (pool.isWorkerSession(sessionId)) return replyWait(res, { kind: 'none' });
       const previous = waiters.get(sessionId);
       if (previous) replyWait(previous, { kind: 'superseded' });
       waiters.set(sessionId, res);
@@ -573,12 +661,20 @@ function hooksStatus(error) {
 }
 
 async function handle(command) {
+  if (/^(workers?|worker_|library|meeting_)/.test(command.cmd ?? '')) {
+    try {
+      return await workerCommand(command);
+    } catch (err) {
+      return emit({ type: 'error', message: String(err?.message ?? err), clientId: command.clientId ?? null });
+    }
+  }
   switch (command.cmd) {
     case 'status':
       emit({ type: 'ready', fake: FAKE, attached: attached?.sessionId ?? null, ...options });
       lastList = '';
       pollSessions();
       refreshHooks();
+      emit(pool.snapshot());
       return hooksStatus();
     case 'attach':
       return attach(command.sessionId);
@@ -627,7 +723,10 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   handle(command).catch((err) => emit({ type: 'error', message: String(err?.message ?? err) }));
 });
 
-process.stdin.on('end', () => process.exit(0));
+process.stdin.on('end', () => {
+  pool.shutdown();
+  process.exit(0);
+});
 
 // ---------- demo modu ----------
 let fakeModule = null;

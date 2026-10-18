@@ -48,6 +48,12 @@ const SLASH_HELP = [
   ['/yardım', 'bu liste'],
 ];
 const SHOW_YOU_KEY = 'claudio.showYou';
+const WORKER_COLORS = ['#7fb38a', '#b99bd8', '#e0b25a', '#6fb0c8', '#d98a8a', '#9aa7d8', '#c9a27e'];
+function workerColor(key) {
+  let h = 0;
+  for (const ch of String(key)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return WORKER_COLORS[h % WORKER_COLORS.length];
+}
 const TASK_LABEL = { pending: 'Yapılacak', in_progress: 'Sürüyor', completed: 'Bitti' };
 const fmtTokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
 const fmtDuration = (ms) => {
@@ -55,7 +61,16 @@ const fmtDuration = (ms) => {
   return m < 1 ? '1 dk\'dan az' : m < 60 ? `${m} dk` : `${Math.floor(m / 60)} sa ${m % 60} dk`;
 };
 // "Your turn" only makes sense for the main agent; a finished subagent is simply done.
-const stateLabel = (agent) => (agent.state === 'done' && agent.kind === 'sub' ? 'bitti' : STATE_LABEL[agent.state] ?? agent.state);
+const stateLabel = (agent) => {
+  if (agent.state === 'done' && agent.kind === 'sub') return 'bitti';
+  if (agent.state === 'done' && agent.kind === 'worker') return 'dinleniyor';
+  return STATE_LABEL[agent.state] ?? agent.state;
+};
+const WORKER_CHIPS = [
+  { label: 'Ne yapıyorsun?', text: 'Şu an ne yapıyorsun? İki cümleyle anlat.' },
+  { label: 'Durum özeti', text: 'Şu ana kadar yaptıklarını ve sıradaki adımı üç maddede özetle.' },
+  { label: 'Kendini tanıt', text: 'Kendini kısaca tanıt: ne konuda uzmansın, sana hangi işleri verebilirim?' },
+];
 const MODES = {
   default: { label: 'Her şeyi sor', color: 'var(--ok)' },
   acceptEdits: { label: 'Düzenlemeler otomatik', color: 'var(--s-read)' },
@@ -98,7 +113,7 @@ export function createUI(scene) {
   let panel = null; // { type, id? }
   let wasAttached = null;
   let agentTab = 'chat';
-  let teamTab = 'agents';
+  let teamTab = 'office';
   let teamPick = null; // { kind, name } of the row whose task box is open
 
   // ---------- ajan etiketleri ----------
@@ -190,7 +205,10 @@ export function createUI(scene) {
     const type = btn.dataset.open;
     if (type === 'chat') openPanel(session.state.attached ? { type: 'agent', id: 'main' } : { type: 'session' });
     else if (type === 'team') {
-      if (panel?.type !== 'team') session.refreshRoster();
+      if (panel?.type !== 'team') {
+        session.refreshRoster();
+        session.refreshLibrary();
+      }
       openPanel({ type });
     } else openPanel({ type });
   });
@@ -461,34 +479,47 @@ export function createUI(scene) {
     const s = session.state;
     const agent = s.agents.get(panel.id);
     const isMain = panel.id === 'main';
+    const isWorker = agent.kind === 'worker';
     const sub = isMain ? esc(s.attached?.name || 'Ana ajan') : esc(agent.description || agent.type);
     const st = `<span class="st live" style="--c:var(--s-${agent.state})" id="agentState"><i class="dot"></i><span>${stateLabel(agent)}</span></span>`;
+    // Office agents can be stopped mid-task or sent home.
+    const tools = isWorker
+      ? `<div class="wtools"><button type="button" class="btn ghost small" data-wact="stop" ${agent.resting ? 'hidden' : ''}>Durdur</button><button type="button" class="btn ghost small" data-wact="remove">Ofisten çıkar</button></div>`
+      : '';
     const tabs = `<div class="tabs-row"><div class="seg" id="agentTabs"><span class="ind"></span><button type="button" data-v="chat" aria-pressed="${agentTab === 'chat'}">Sohbet</button><button type="button" data-v="steps" aria-pressed="${agentTab === 'steps'}">Adımlar <span class="cnt">${agent.steps.length || ''}</span></button></div></div>`;
     const body = agentTab === 'chat' ? '<div class="thread" id="thread"></div>' : '<div class="steps" id="steps"></div>';
-    const placeholder = isMain ? "Claude'a yaz…" : `${agent.label}'a yaz (bir sonraki adımında görür)…`;
-    const chips = (isMain ? MAIN_CHIPS : SUB_CHIPS).map((c, i) => `<button type="button" class="chip" data-chip="${i}" ${s.attached ? '' : 'disabled'}>${esc(c.label)}</button>`).join('');
-    return head(esc(agent.label), sub, st, true) + tabs + `<div class="pbody scroll" id="pbody">${body}</div>` +
-      `<div class="chips-row" id="chips">${chips}</div>` + composer(placeholder, !s.attached);
+    const placeholder = isMain ? "Claude'a yaz…" : isWorker ? `${agent.label}'a görev ver…` : `${agent.label}'a yaz (bir sonraki adımında görür)…`;
+    const enabled = isWorker || s.attached;
+    const chips = (isMain ? MAIN_CHIPS : isWorker ? WORKER_CHIPS : SUB_CHIPS).map((c, i) => `<button type="button" class="chip" data-chip="${i}" ${enabled ? '' : 'disabled'}>${esc(c.label)}</button>`).join('');
+    return head(esc(agent.label), sub, st, true) + tools + tabs + `<div class="pbody scroll" id="pbody">${body}</div>` +
+      `<div class="chips-row" id="chips">${chips}</div>` + composer(placeholder, !enabled);
   }
 
   // ---------- toplantı ----------
-  let meetDraft = { topic: '', picked: null }; // picked: Set of subagent ids, null = everyone
+  let meetDraft = { topic: '', picked: null }; // picked: Set of office agent ids, null = everyone
+
+  const officeAgents = () => [...session.state.agents.values()].filter((a) => a.kind === 'worker');
 
   function meetingSetupPanel() {
     const s = session.state;
-    const subs = [...s.agents.values()].filter((a) => a.id !== 'main');
-    const picked = meetDraft.picked ?? new Set(subs.map((a) => a.id));
-    const people = [
-      `<label class="who on"><input type="checkbox" checked disabled><span class="mini-av"></span><b>Claude</b><span>toplantıyı yönetir</span></label>`,
-      ...subs.map((a) => `<label class="who${picked.has(a.id) ? ' on' : ''}"><input type="checkbox" data-who="${esc(a.id)}" ${picked.has(a.id) ? 'checked' : ''}><span class="mini-av"></span><b>${esc(a.label)}</b><span>${esc(a.description || a.type || '')}</span></label>`),
-    ].join('');
-    const can = s.attached && meetDraft.topic.trim();
-    return head('Toplantı ayarla', s.attached ? 'Konuyu yaz, kimlerin katılacağını seç' : 'Önce bir oturuma bağlan') +
+    const workers = officeAgents();
+    const picked = meetDraft.picked ?? new Set(workers.map((a) => a.id));
+    let people;
+    let note;
+    if (workers.length) {
+      people = workers.map((a) => `<label class="who${picked.has(a.id) ? ' on' : ''}"><input type="checkbox" data-who="${esc(a.id)}" ${picked.has(a.id) ? 'checked' : ''}><span class="mini-av" style="${avatarStyle(a)}"></span><b>${esc(a.label)}</b><span>${esc(stateLabel(a))}</span></label>`).join('');
+      note = 'Ofis ajanları sırayla konuşur; çalışan ajan işine ara verir ve toplantıdan sonra kaldığı yerden devam eder. Her biri kendi bağlamını korur.';
+    } else {
+      people = '<label class="who on"><input type="checkbox" checked disabled><span class="mini-av"></span><b>Claude</b><span>bağlı oturum</span></label>';
+      note = 'Ofiste ajan yok; toplantıyı bağlı oturumdaki Claude yürütür. Ekip panelinden ajan eklersen onlarla toplantı yapabilirsin.';
+    }
+    const ready = workers.length ? picked.size > 0 : Boolean(s.attached);
+    const can = ready && meetDraft.topic.trim();
+    return head('Toplantı ayarla', ready ? 'Konuyu yaz, kimlerin katılacağını seç' : 'Önce bir oturuma bağlan ya da ofise ajan ekle') +
       `<form class="meetform" id="meetSetup"><div class="pbody"><span class="lbl">Konu</span>` +
-      `<textarea class="field" id="meetTopic" rows="2" placeholder="Toplantının konusu ne?" ${s.attached ? '' : 'disabled'}>${esc(meetDraft.topic)}</textarea>` +
-      `<div class="chips-wrap">${MEETING_TOPICS.map((t, i) => `<button type="button" class="chip" data-topic="${i}" ${s.attached ? '' : 'disabled'}>${esc(t)}</button>`).join('')}</div>` +
-      `<span class="lbl">Katılımcılar</span><div class="people">${people}</div>` +
-      (subs.length ? '' : '<p class="desc">Şu an açık alt ajan yok; Claude toplantıyı tek başına yürütür ve gerekirse sana soru sorar.</p>') +
+      `<textarea class="field" id="meetTopic" rows="2" placeholder="Toplantının konusu ne?" ${ready ? '' : 'disabled'}>${esc(meetDraft.topic)}</textarea>` +
+      `<div class="chips-wrap">${MEETING_TOPICS.map((t, i) => `<button type="button" class="chip" data-topic="${i}" ${ready ? '' : 'disabled'}>${esc(t)}</button>`).join('')}</div>` +
+      `<span class="lbl">Katılımcılar</span><div class="people">${people}</div><p class="desc">${note}</p>` +
       `</div><div class="meet-actions"><button class="btn small" type="submit" id="meetStart" ${can ? '' : 'disabled'}>Toplantıyı başlat</button></div></form>`;
   }
 
@@ -512,16 +543,25 @@ export function createUI(scene) {
     const el = $('meetThread');
     const m = session.state.meeting;
     if (!el || !m) return;
-    const items = session.state.chat.slice(m.startChat);
-    const main = session.state.agents.get('main');
-    const typing = m.phase !== 'done' && main && BUSY_STATES.has(main.state)
-      ? `<div class="typing"><i></i><i></i><i></i><span>${esc(main.text || 'Claude düşünüyor')}</span></div>` : '';
-    el.innerHTML = items.map((x) => {
-      const kind = x.role === 'user' ? meetingKind(x.text) ?? 'me' : x.role === 'system' ? 'sys' : x.role === 'task' ? 'task' : 'ag';
-      // The summary itself is shown below the thread.
-      if (m.phase === 'done' && x.role === 'assistant' && m.summary && x.text.includes(m.summary.slice(0, 40))) return '';
-      return `<div class="m ${kind}${x.pending ? ' pending' : ''}">${esc(shownText(x.text))}</div>`;
-    }).join('') + typing;
+    if (m.mode === 'workers') {
+      const who = (id) => session.state.agents.get(id)?.label ?? 'ajan';
+      const speaking = m.speaking && m.phase !== 'done'
+        ? `<div class="typing"><i></i><i></i><i></i><span>${esc(who(m.speaking))} konuşuyor</span></div>` : '';
+      el.innerHTML = (m.lines.length ? '' : `<div class="m sys">Toplantı başladı: ${esc(m.topic)}</div>`) + m.lines.map((l) => (l.speaker === 'user'
+        ? `<div class="m me">${esc(l.text)}</div>`
+        : `<div class="m ag"><span class="tl spk">${esc(who(l.speaker))}</span>${esc(l.text)}</div>`)).join('') + speaking;
+    } else {
+      const items = session.state.chat.slice(m.startChat);
+      const main = session.state.agents.get('main');
+      const typing = m.phase !== 'done' && main && BUSY_STATES.has(main.state)
+        ? `<div class="typing"><i></i><i></i><i></i><span>${esc(main.text || 'Claude düşünüyor')}</span></div>` : '';
+      el.innerHTML = items.map((x) => {
+        const kind = x.role === 'user' ? meetingKind(x.text) ?? 'me' : x.role === 'system' ? 'sys' : x.role === 'task' ? 'task' : 'ag';
+        // The summary itself is shown below the thread.
+        if (m.phase === 'done' && x.role === 'assistant' && m.summary && x.text.includes(m.summary.slice(0, 40))) return '';
+        return `<div class="m ${kind}${x.pending ? ' pending' : ''}">${esc(shownText(x.text))}</div>`;
+      }).join('') + typing;
+    }
     const body = $('pbody');
     if (body) body.scrollTop = body.scrollHeight;
   }
@@ -531,7 +571,9 @@ export function createUI(scene) {
     if (setup) {
       const topic = $('meetTopic');
       const start = $('meetStart');
-      const refresh = () => { start.disabled = !(session.state.attached && meetDraft.topic.trim()); };
+      const workers = officeAgents().map((a) => a.id);
+      const ready = () => (workers.length ? (meetDraft.picked ?? new Set(workers)).size > 0 : Boolean(session.state.attached));
+      const refresh = () => { start.disabled = !(ready() && meetDraft.topic.trim()); };
       topic.addEventListener('input', () => { meetDraft.topic = topic.value; refresh(); });
       topic.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); setup.requestSubmit(); } });
       for (const chip of root.querySelectorAll('[data-topic]')) {
@@ -539,20 +581,19 @@ export function createUI(scene) {
       }
       for (const box of root.querySelectorAll('[data-who]')) {
         box.addEventListener('change', () => {
-          const subs = [...session.state.agents.keys()].filter((id) => id !== 'main');
-          meetDraft.picked ??= new Set(subs);
+          meetDraft.picked ??= new Set(workers);
           if (box.checked) meetDraft.picked.add(box.dataset.who); else meetDraft.picked.delete(box.dataset.who);
           box.closest('.who').classList.toggle('on', box.checked);
+          refresh();
         });
       }
       setup.addEventListener('submit', (e) => {
         e.preventDefault();
         if (start.disabled) return;
-        const subs = [...session.state.agents.keys()].filter((id) => id !== 'main');
-        const picked = meetDraft.picked ?? new Set(subs);
+        const picked = meetDraft.picked ?? new Set(workers);
         const topicText = meetDraft.topic.trim();
         meetDraft = { topic: '', picked: null };
-        session.startMeeting(topicText, subs.filter((id) => picked.has(id)));
+        session.startMeeting(topicText, workers.filter((id) => picked.has(id)));
       });
       setTimeout(() => (topic.disabled ? null : topic.focus({ preventScroll: true })), 60);
     }
@@ -588,7 +629,11 @@ export function createUI(scene) {
     const m = session.state.meeting;
     const live = m && m.phase !== 'done';
     if (live && !scene.inMeeting) scene.startMeeting(m.participants);
-    if (!live && scene.inMeeting) scene.endMeeting();
+    if (!live && scene.inMeeting) {
+      scene.endMeeting();
+      // Office agents with nothing to do go back to the sofa rather than their desks.
+      for (const a of officeAgents()) scene.setResting(a.id, a.resting);
+    }
   }
 
   const BUSY_STATES = new Set(['think', 'read', 'write', 'bash', 'talk']);
@@ -598,7 +643,7 @@ export function createUI(scene) {
     if (!el) return;
     const agent = session.state.agents.get(panel.id);
     const items = panel.id === 'main' ? session.state.chat : agent?.chat ?? [];
-    const typing = agent && BUSY_STATES.has(agent.state) && session.state.attached
+    const typing = agent && BUSY_STATES.has(agent.state) && (session.state.attached || agent.kind === 'worker')
       ? `<div class="typing" aria-label="${esc(agent.label)} çalışıyor"><i></i><i></i><i></i><span>${esc(agent.text || 'çalışıyor')}</span></div>` : '';
     el.innerHTML = (items.length
       ? items.map((m) => {
@@ -611,7 +656,7 @@ export function createUI(scene) {
             : '';
           return `<div class="m ${cls}${m.pending ? ' pending' : ''}">${label}${files}${esc(shownText(m.text))}${status}</div>`;
         }).join('')
-      : `<div class="m sys">${panel.id === 'main' ? 'Henüz mesaj yok.' : 'Bu ajanın kaydı henüz gelmedi.'}</div>`) + typing;
+      : `<div class="m sys">${panel.id === 'main' ? 'Henüz mesaj yok.' : agent?.kind === 'worker' ? 'Bu ajana henüz görev vermedin. Aşağıya yaz ya da bir hızlı komut seç.' : 'Bu ajanın kaydı henüz gelmedi.'}</div>`) + typing;
     const body = $('pbody');
     if (body) body.scrollTop = body.scrollHeight;
   }
@@ -626,26 +671,87 @@ export function createUI(scene) {
       agent.kind === 'sub' ? `<span>${fmtDuration((agent.endedAt ?? Date.now()) - agent.startedAt)}</span>` : '',
       agent.model ? `<span>${esc(String(agent.model).replace(/^claude-/, ''))}</span>` : '',
       agent.tokens ? `<span>${fmtTokens(agent.tokens)} token</span>` : '',
+      agent.costUsd ? `<span>$${agent.costUsd.toFixed(3)}</span>` : '',
     ].filter(Boolean).join('<i>·</i>');
     return `<div class="stats"><div class="tcs">${chips}</div>${facts ? `<div class="facts">${facts}</div>` : ''}</div>`;
   }
 
   // ---------- ekip ve görevler ----------
+  let libQuery = '';
+  let libOpen = new Set(['builtin', 'project']); // expanded library sources
+  let confirmRemove = null;
+
+  const avatarStyle = (a) => (a?.kind === 'worker' ? `background:${workerColor(a.workerId)}` : '');
+
   function teamPanel() {
     const s = session.state;
     const r = s.roster;
-    const counts = { agents: r?.agents.length ?? 0, skills: (r?.skills.length ?? 0) + (r?.commands.length ?? 0), tasks: s.tasks.length };
+    const workers = officeAgents();
+    const libCount = (s.library?.sources ?? []).reduce((n, src) => n + src.agents.length, 0);
+    const counts = { office: `${workers.length}/${s.workers.max}`, library: libCount || '', skills: (r?.skills.length ?? 0) + (r?.commands.length ?? 0) || '', tasks: s.tasks.length || '' };
     const seg = `<div class="tabs-row"><div class="seg" id="teamTabs"><span class="ind"></span>` +
-      [['agents', 'Ajanlar'], ['skills', 'Beceriler'], ['tasks', 'Görevler']].map(([v, l]) =>
-        `<button type="button" data-v="${v}" aria-pressed="${teamTab === v}">${l} <span class="cnt">${counts[v] || ''}</span></button>`).join('') + '</div></div>';
-    const sub = s.attached ? esc(shortPath(r?.cwd || s.attached.cwd) || 'Bağlı oturum') : 'Önce bir oturuma bağlan';
+      [['office', 'Ofis'], ['library', 'Kütüphane'], ['skills', 'Beceriler'], ['tasks', 'Görevler']].map(([v, l]) =>
+        `<button type="button" data-v="${v}" aria-pressed="${teamTab === v}">${l} <span class="cnt">${counts[v]}</span></button>`).join('') + '</div></div>';
+    const sub = s.attached ? esc(shortPath(r?.cwd || s.attached.cwd) || 'Bağlı oturum') : 'Bağlı oturum yok';
     let body = '';
-    if (!s.attached) body = '<p class="desc">Ofisi bir Claude Code oturumuna bağlayınca o projede kullanılabilen ajanlar, beceriler ve görev listesi burada görünür.</p>';
+    if (teamTab === 'office') body = officeList(workers);
+    else if (teamTab === 'library') body = libraryList();
+    else if (!s.attached) body = '<p class="desc">Ofisi bir Claude Code oturumuna bağlayınca o projenin becerileri ve görev listesi burada görünür.</p>';
     else if (teamTab === 'tasks') body = tasksList(s.tasks);
     else if (!r) body = '<p class="desc">Liste okunuyor…</p>';
-    else if (teamTab === 'agents') body = rosterList('agent', r.agents);
     else body = rosterList('skill', r.skills, 'Beceriler') + rosterList('command', r.commands, 'Komutlar');
     return head('Ekip ve görevler', sub) + seg + `<div class="pbody scroll" id="teamBody">${body}</div>`;
+  }
+
+  function officeList(workers) {
+    const s = session.state;
+    if (!s.workers.available) return '<div class="note warn"><b>Claude Code bulunamadı.</b> Ofis ajanları, bilgisayarındaki <code>claude</code> komutuyla çalışır. Claude Code\'u kurup ofisi yeniden aç.</div>';
+    const head = `<div class="row"><span class="desc">Ofiste ${workers.length} / ${s.workers.max} ajan. Her biri kendi Claude Code oturumunda çalışır ve bağlamını korur.</span></div>`;
+    if (!workers.length) {
+      return head + '<p class="desc">Henüz ajan yok.</p><button class="btn" type="button" data-goto="library">Kütüphaneden ajan ekle</button>';
+    }
+    const rows = workers.map((a) => {
+      const sure = confirmRemove === a.id;
+      return `<div class="wrow" data-wid="${esc(a.id)}"><button type="button" class="ros-h" data-open-agent><span class="mini-av" style="${avatarStyle(a)}"></span>` +
+        `<span class="grow"><b>${esc(a.label)}</b><span>${esc(a.text || a.description || '')}</span></span>` +
+        `<span class="st${a.resting ? '' : ' live'}" style="--c:var(--s-${a.state})"><i class="dot"></i>${esc(stateLabel(a))}${a.queued ? ` · ${a.queued} mesaj` : ''}</span></button>` +
+        `<button type="button" class="wx${sure ? ' sure' : ''}" data-remove title="Ofisten çıkar">${sure ? 'Çıkar?' : ICON.x}</button></div>`;
+    }).join('');
+    const full = workers.length >= s.workers.max;
+    return head + `<div class="roster">${rows}</div>` + (full
+      ? '<p class="desc">Ofis dolu. Yeni bir ajan için önce birini çıkar.</p>'
+      : '<button class="btn ghost small" type="button" data-goto="library">+ Ajan ekle</button>');
+  }
+
+  function libraryList() {
+    const s = session.state;
+    const lib = s.library;
+    if (!lib) return '<p class="desc">Kütüphane okunuyor…</p>';
+    const full = officeAgents().length >= s.workers.max;
+    const q = libQuery.trim().toLocaleLowerCase('tr');
+    const inOffice = new Map();
+    for (const a of officeAgents()) inOffice.set(a.type, (inOffice.get(a.type) ?? 0) + 1);
+    const recommended = lib.recommended.filter((r) => !r.imported).map((r) =>
+      `<div class="rec"><div><b>${esc(r.label)}</b><p class="desc">${esc(r.note)}</p></div>` +
+      `<button class="btn small" type="button" data-import="${esc(r.url)}" ${s.libraryBusy ? 'disabled' : ''}>${s.libraryBusy === r.url ? 'İndiriliyor…' : 'İçe aktar'}</button></div>`).join('');
+    const importForm = `<form class="ros-task libimport" id="libImport"><input placeholder="GitHub reposu: https://github.com/sahip/repo" autocomplete="off" aria-label="GitHub reposu" ${s.libraryBusy ? 'disabled' : ''}><button class="btn small" type="submit" ${s.libraryBusy ? 'disabled' : ''}>${s.libraryBusy && !lib.recommended.some((r) => r.url === s.libraryBusy) ? 'İndiriliyor…' : 'Ekle'}</button></form>` +
+      (s.libraryError ? `<p class="desc warn">${esc(s.libraryError)}</p>` : '');
+    const search = `<input class="field libsearch" id="libSearch" placeholder="Ajan ara…" value="${esc(libQuery)}" autocomplete="off" aria-label="Ajan ara">`;
+    const sources = lib.sources.map((src) => {
+      const agents = src.agents.filter((a) => !q || `${a.name} ${a.description}`.toLocaleLowerCase('tr').includes(q));
+      if (q && !agents.length) return '';
+      const open = q || libOpen.has(src.id);
+      const rows = open ? agents.map((a) => {
+        const count = inOffice.get(a.name) ?? 0;
+        return `<div class="ros"><div class="ros-h"><span class="grow"><b>${esc(a.name)}</b><span>${esc(a.description || 'Açıklama yok')}</span>${a.model && a.model !== 'inherit' ? `<em>model: ${esc(a.model)}</em>` : ''}</span>` +
+          `<button type="button" class="btn small${count ? ' ghost' : ''}" data-add="${esc(a.key)}" ${full ? 'disabled title="Ofis dolu"' : ''}>${count ? `Bir tane daha` : 'Ofise ekle'}</button></div></div>`;
+      }).join('') : '';
+      const remove = src.kind === 'repo' ? `<button type="button" class="link" data-unsource="${esc(src.id)}">kaldır</button>` : '';
+      return `<div class="libsrc"><button type="button" class="libhead" data-src="${esc(src.id)}"><span class="chev${open ? ' open' : ''}">›</span><b>${esc(src.label)}</b><span class="cnt">${src.agents.length}</span></button>${remove}</div>` +
+        (open ? `<div class="roster">${rows}</div>` : '');
+    }).join('');
+    return (full ? '<div class="note">Ofis dolu (en fazla ' + s.workers.max + ' ajan). Eklemek için Ofis sekmesinden birini çıkar.</div>' : '') +
+      search + recommended + sources + '<span class="lbl">Repodan ajan ekle</span>' + importForm;
   }
 
   function rosterList(kind, items, title) {
@@ -684,23 +790,59 @@ export function createUI(scene) {
   /** Redraw the team panel without losing a task being typed or the scroll position. */
   function rerenderTeam() {
     if (panel?.type !== 'team') return;
-    const input = panelEl.querySelector('[data-task] input');
+    const input = panelEl.querySelector('[data-task] input') ?? panelEl.querySelector('#libSearch');
     const draft = input?.value ?? '';
     const focused = input && document.activeElement === input;
+    const isSearch = input?.id === 'libSearch';
     const scroll = $('teamBody')?.scrollTop ?? 0;
     renderPanel();
     const body = $('teamBody');
     if (body) body.scrollTop = scroll;
-    const again = panelEl.querySelector('[data-task] input');
+    const again = isSearch ? panelEl.querySelector('#libSearch') : panelEl.querySelector('[data-task] input');
     if (again) {
       again.value = draft;
-      if (focused) again.focus({ preventScroll: true });
+      if (focused) {
+        again.focus({ preventScroll: true });
+        again.setSelectionRange?.(draft.length, draft.length);
+      }
     }
   }
 
   function wireTeam(root) {
     const tabs = $('teamTabs');
-    if (tabs) segInit(tabs, (v) => { teamTab = v; teamPick = null; renderPanel(); });
+    if (tabs) segInit(tabs, (v) => { teamTab = v; teamPick = null; confirmRemove = null; renderPanel(); });
+    for (const b of root.querySelectorAll('[data-goto]')) b.addEventListener('click', () => { teamTab = b.dataset.goto; renderPanel(); });
+    for (const row of root.querySelectorAll('.wrow')) {
+      row.querySelector('[data-open-agent]').addEventListener('click', () => openPanel({ type: 'agent', id: row.dataset.wid }));
+      row.querySelector('[data-remove]').addEventListener('click', () => {
+        if (confirmRemove !== row.dataset.wid) { confirmRemove = row.dataset.wid; renderPanel(); return; }
+        confirmRemove = null;
+        session.removeWorker(row.dataset.wid);
+      });
+    }
+    for (const b of root.querySelectorAll('[data-add]')) {
+      b.addEventListener('click', () => {
+        b.disabled = true;
+        b.textContent = 'Geliyor…';
+        session.addWorker(b.dataset.add);
+      });
+    }
+    for (const b of root.querySelectorAll('[data-src]')) {
+      b.addEventListener('click', () => {
+        if (libOpen.has(b.dataset.src)) libOpen.delete(b.dataset.src); else libOpen.add(b.dataset.src);
+        rerenderTeam();
+      });
+    }
+    for (const b of root.querySelectorAll('[data-import]')) b.addEventListener('click', () => session.importLibrary(b.dataset.import));
+    for (const b of root.querySelectorAll('[data-unsource]')) b.addEventListener('click', () => session.removeLibrarySource(b.dataset.unsource));
+    const imp = $('libImport');
+    if (imp) imp.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const url = imp.querySelector('input').value.trim();
+      if (url) session.importLibrary(url);
+    });
+    const search = $('libSearch');
+    if (search) search.addEventListener('input', () => { libQuery = search.value; rerenderTeam(); });
     for (const row of root.querySelectorAll('.ros')) {
       row.querySelector('[data-pick]').addEventListener('click', () => {
         if (!session.state.attached) return;
@@ -802,11 +944,21 @@ export function createUI(scene) {
         if (key === 'sound' && alerts.sound) playChime();
       });
     }
+    for (const b of root.querySelectorAll('[data-wact]')) {
+      b.addEventListener('click', () => {
+        if (b.dataset.wact === 'stop') session.stopWorker(panel.id);
+        if (b.dataset.wact === 'remove') {
+          if (b.dataset.sure) { session.removeWorker(panel.id); return; }
+          b.dataset.sure = '1';
+          b.textContent = 'Emin misin? Çıkar';
+        }
+      });
+    }
     const tabsEl = $('agentTabs');
     if (tabsEl) segInit(tabsEl, (v) => { agentTab = v; renderPanel(); });
     for (const chip of root.querySelectorAll('[data-chip]')) {
       chip.addEventListener('click', () => {
-        const list = panel.id === 'main' ? MAIN_CHIPS : SUB_CHIPS;
+        const list = panel.id === 'main' ? MAIN_CHIPS : session.isWorker(panel.id) ? WORKER_CHIPS : SUB_CHIPS;
         session.sendMessage(list[Number(chip.dataset.chip)].text, panel.id);
         agentTab = 'chat';
         renderThread();
@@ -848,7 +1000,9 @@ export function createUI(scene) {
         input.value = '';
         renderDrafts();
         session.sendMessage(text || 'Ekteki dosyalara bak.', panel.id, files);
-        if (panel.id !== 'main') sayBubble(panel.id, 'Mesajın bir sonraki adımımda bana ulaşacak');
+        const target = session.state.agents.get(panel.id);
+        if (target?.kind === 'sub') sayBubble(panel.id, 'Mesajın bir sonraki adımımda bana ulaşacak');
+        else if (target?.kind === 'worker') sayBubble(panel.id, target.resting ? 'Tamam, masama geçiyorum' : 'Not aldım, sıradaki adımımda bakarım');
       });
       setTimeout(() => (input.disabled ? null : input.focus({ preventScroll: true })), 60);
     }
@@ -1075,12 +1229,20 @@ export function createUI(scene) {
   session.subscribe((change) => {
     switch (change.kind) {
       case 'agent_added':
-        scene.addAgent(change.agent.id, change.agent.type);
+        scene.addAgent(change.agent.id, change.agent.type, change.agent.kind === 'worker' ? { kind: 'worker', colorKey: change.agent.workerId, resting: change.agent.resting } : {});
         scene.setState(change.agent.id, change.agent.state);
         tagFor(change.agent);
         if (panel?.type === 'meeting' && !session.state.meeting) renderPanel();
         break;
       case 'agent_updated':
+        if (change.agent.kind === 'worker') {
+          scene.setResting(change.agent.id, change.agent.resting);
+          if (panel?.type === 'team') rerenderTeam();
+          if (panel?.type === 'agent' && panel.id === change.agent.id) {
+            const stop = panelEl.querySelector('[data-wact="stop"]');
+            if (stop) stop.hidden = change.agent.resting;
+          }
+        }
         if (panel?.type === 'meeting' && change.agent.id === 'main') renderMeetingThread();
         scene.setState(change.agent.id, change.agent.state);
         tagFor(change.agent);
@@ -1143,7 +1305,15 @@ export function createUI(scene) {
         renderMeetingThread();
         break;
       case 'roster':
+      case 'library':
         rerenderTeam();
+        break;
+      case 'workers':
+        rerenderTeam();
+        if (panel?.type === 'meeting' && !session.state.meeting) renderPanel();
+        break;
+      case 'meeting_lines':
+        renderMeetingThread();
         break;
       case 'tasks':
         scene.setTasks(session.state.tasks);

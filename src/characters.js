@@ -42,6 +42,7 @@ const blushMat = new THREE.MeshBasicMaterial({ color: 0xff8f7a, transparent: tru
 export function accessoriesFor(type) {
   if (type === 'main') return ['crown', 'mug'];
   if (type === 'you') return ['headset'];
+  if (type === 'genel') return ['glasses'];
   if (type === 'Explore') return ['fedora', 'magnifier'];
   if (type === 'Plan') return ['notepad'];
   if (type === 'general-purpose') return ['fedora', 'headset'];
@@ -154,7 +155,15 @@ export function animate(rig, st, t, k) {
     armR.rotation.x = Math.sin(t * 11 + Math.PI) * 0.5 * k;
     body.position.y = 0.22 + Math.abs(Math.sin(t * 11)) * 0.03 * k;
   } else if (st === 'wave') { armR.rotation.z = 2.4 + Math.sin(t * 8) * 0.3 * k; }
-  else if (st === 'sleep') {
+  else if (st === 'sit' || st === 'sitwave') {
+    // Seated on the sofa: lowered onto the cushion, legs forward, leaning back a little.
+    root.position.y = 0.16;
+    for (const l of legs) l.rotation.x = -1.35;
+    body.rotation.x = -0.1;
+    body.position.y = 0.22 + Math.sin(t * 1.4 + p) * 0.008 * k;
+    if (st === 'sitwave') armR.rotation.z = 2.4 + Math.sin(t * 8) * 0.3 * k;
+    else { armL.rotation.set(-0.35, 0, -0.3); armR.rotation.set(-0.35, 0, 0.3); }
+  } else if (st === 'sleep') {
     // Dozing at the desk: head down, slow breathing, arms resting.
     body.rotation.x = 0.32 + Math.sin(t * 0.9 + p) * 0.03 * k;
     body.position.y = 0.2 + Math.sin(t * 0.9 + p) * 0.01 * k;

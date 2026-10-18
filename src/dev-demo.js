@@ -31,8 +31,68 @@ function devBridge(command) {
   if (command.cmd === 'answer') session.inject({ type: 'chat', role: 'system', text: `Demo: istek cevaplandı (${command.behavior}).` });
   if (command.cmd === 'set_option') session.inject({ type: 'options', ...command.options });
   if (command.cmd === 'roster') session.inject(DEMO_ROSTER);
+  if (/^(workers|worker_|library|meeting_)/.test(command.cmd)) demoWorkers(command);
   if (command.cmd === 'diagnostics') {
     session.inject({ type: 'diagnostics', version: 'demo', node: 'v20.13.0', nodeOk: true, port: 47821, hooksInstalled: true, hooksCurrent: true, hooksSeen: 42, lastHookAt: Date.now() - 4000, lastHookEvent: 'PostToolUse', sessions: 2, attached: SID, uptimeMs: 60000 });
+  }
+}
+
+// ---------- office agents, faked ----------
+const DEMO_LIBRARY = {
+  type: 'library',
+  sources: [
+    { id: 'builtin', label: 'Yerleşik', kind: 'builtin', agents: [{ key: 'builtin/genel', name: 'genel', description: 'Her işe bakan genel bir asistan.', source: 'builtin' }] },
+    { id: 'project', label: 'Bu proje', kind: 'project', agents: [{ key: 'project/reviewer', name: 'reviewer', description: 'Değişiklikleri hata ve güvenlik açısından inceler.', model: 'sonnet', source: 'project' }] },
+    { id: 'donchitos__claude-code-game-studios', label: 'Claude Code Game Studios', kind: 'repo', agents: [
+      { key: 'repo:gs/creative-director', name: 'creative-director', description: 'Oyunun vizyonunu ve tonunu korur.', source: 'repo' },
+      { key: 'repo:gs/gameplay-programmer', name: 'gameplay-programmer', description: 'Oynanış sistemlerini yazar.', source: 'repo' },
+      { key: 'repo:gs/qa-lead', name: 'qa-lead', description: 'Test planı ve hata takibi.', source: 'repo' },
+    ] },
+  ],
+  recommended: [{ url: 'https://github.com/Donchitos/Claude-Code-Game-Studios', label: 'Claude Code Game Studios', note: 'Bir oyun stüdyosunun ekibi.', imported: true }],
+};
+const demoWorkerList = [];
+let wSeq = 0;
+const winj = (e) => session.inject(e);
+async function demoWorkers(c) {
+  if (c.cmd === 'library') return winj(DEMO_LIBRARY);
+  if (c.cmd === 'workers') return winj({ type: 'workers', max: 5, available: true, list: demoWorkerList });
+  if (c.cmd === 'worker_add') {
+    if (demoWorkerList.length >= 5) return winj({ type: 'error', message: 'Ofiste en fazla 5 ajan çalışabilir.' });
+    const name = c.key.split('/').pop();
+    const w = { id: `d${++wSeq}`, name, title: name, defKey: c.key, description: '', state: 'idle', text: 'Ofise geldi', queued: 0 };
+    demoWorkerList.push(w);
+    return winj({ type: 'worker_added', worker: w });
+  }
+  if (c.cmd === 'worker_remove') {
+    demoWorkerList.splice(demoWorkerList.findIndex((w) => w.id === c.id), 1);
+    return winj({ type: 'worker_removed', id: c.id });
+  }
+  if (c.cmd === 'worker_send') {
+    winj({ type: 'worker_chat', id: c.id, role: 'user', text: c.text, msgId: `x${Date.now()}`, clientId: c.clientId });
+    winj({ type: 'worker_state', id: c.id, state: 'working', text: 'Düşünüyor…' });
+    await wait(1200);
+    winj({ type: 'worker_tool', id: c.id, phase: 'start', tool: 'Read', input: { file_path: 'src/ui.js' }, toolUseId: 't1' });
+    await wait(1500);
+    winj({ type: 'worker_tool', id: c.id, phase: 'end', toolUseId: 't1' });
+    winj({ type: 'worker_chat', id: c.id, role: 'assistant', text: `(Demo) "${c.text}" üzerinde çalıştım, işim bitti.` });
+    winj({ type: 'worker_stats', id: c.id, tokens: 18200, costUsd: 0.021 });
+    return winj({ type: 'worker_state', id: c.id, state: 'idle', text: 'İşini bitirdi' });
+  }
+  if (c.cmd === 'meeting_start') {
+    winj({ type: 'meeting_started', topic: c.topic, participants: c.participants });
+    for (const id of c.participants) {
+      winj({ type: 'meeting_turn', speaker: id });
+      await wait(1400);
+      winj({ type: 'meeting_line', speaker: id, text: `(Demo) "${c.topic}" için kendi alanımdan iki öneri: önce kapsamı daraltalım, sonra test yazalım.` });
+    }
+    return winj({ type: 'meeting_phase', phase: 'waiting' });
+  }
+  if (c.cmd === 'meeting_interject') return winj({ type: 'meeting_line', speaker: 'user', text: c.text });
+  if (c.cmd === 'meeting_end') {
+    winj({ type: 'meeting_phase', phase: 'ending' });
+    await wait(1200);
+    return winj({ type: 'meeting_summary', summary: '- Karar: kapsam daraltıldı.\n- Her ajan kendi alanında test yazacak.' });
   }
 }
 
