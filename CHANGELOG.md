@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-10-18
+
+A transparent dock inside the office, folding the office away, and fixes for dragging upwards, staying on screen and clicks through the empty corners.
+
 ### Added
 
 - Collapse: a small arrow on the office's left edge folds the office away to the right, leaving only the dock; an arrow beside the dock brings it back. The state is remembered and the scene stops drawing while folded.
@@ -168,7 +172,8 @@ First working prototype, covering roadmap phases 0 and 1. Commits before this re
 
 - The window position is no longer saved while the window is minimized.
 
-[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.10.1...HEAD
+[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.11.0...HEAD
+[0.11.0]: https://github.com/SefaSelim/claudio/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/SefaSelim/claudio/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/SefaSelim/claudio/compare/v0.9.0...v0.10.0
 [0.9.0]: https://github.com/SefaSelim/claudio/compare/v0.8.0...v0.9.0
