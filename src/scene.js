@@ -165,6 +165,33 @@ export function createScene(canvas) {
     for (const [aid, a] of agents) a.group.userData.rig.ring.visible = aid === id;
   }
 
+  // ---------- outline ----------
+  // The room's silhouette on the canvas: floor slab plus the two back walls. Clicks
+  // outside it fall through to the desktop instead of hitting the empty corners.
+  const SHELL = [
+    [-4.7, -0.17, -3.4], [4.6, -0.17, -3.4], [4.6, -0.17, 3.2], [-4.7, -0.17, 3.2],
+    [-4.7, 2.2, -3.4], [4.6, 2.2, -3.4], [-4.7, 2.2, 3.2],
+  ];
+  const ov = new THREE.Vector3();
+  /** Convex hull of the room, in canvas CSS px. */
+  function outline() {
+    const pts = SHELL.map(([x, y, z]) => {
+      ov.set(x, y, z).project(camera);
+      return [((ov.x + 1) / 2) * W, ((1 - ov.y) / 2) * H];
+    }).sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+    const cross = (o, a, b) => (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0]);
+    const half = (list) => {
+      const h = [];
+      for (const p of list) {
+        while (h.length >= 2 && cross(h[h.length - 2], h[h.length - 1], p) <= 0) h.pop();
+        h.push(p);
+      }
+      h.pop();
+      return h;
+    };
+    return [...half(pts), ...half([...pts].reverse())];
+  }
+
   const tmp = new THREE.Vector3();
   function project(id) {
     const a = agents.get(id);
@@ -230,7 +257,10 @@ export function createScene(canvas) {
     for (const a of agents.values()) if (a.route.length || a.fading || a.appear < 1) return 1000 / FPS_ACTIVE;
     return 1000 / FPS_IDLE;
   }
+  let paused = false;
   function frame(now) {
+    // Collapsed office: nothing to draw.
+    if (paused) { last = now; requestAnimationFrame(frame); return; }
     // A small tolerance keeps 60 Hz displays from dropping every other frame.
     if (now - last < frameBudget() - 2) { requestAnimationFrame(frame); return; }
     const dt = Math.min(0.05, (now - last) / 1000);
@@ -348,6 +378,8 @@ export function createScene(canvas) {
     setState,
     select,
     project,
+    outline,
+    setPaused: (on) => { paused = on; },
     setMood: office.setMood,
     startMeeting,
     endMeeting,

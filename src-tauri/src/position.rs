@@ -37,6 +37,11 @@ fn load(app: &AppHandle) -> Option<Saved> {
     serde_json::from_str(&text).ok()
 }
 
+/// Saves right away (after a drag has settled).
+pub fn save_now(app: &AppHandle, pos: PhysicalPosition<i32>) {
+    save(app, pos);
+}
+
 fn save(app: &AppHandle, pos: PhysicalPosition<i32>) {
     let Some(path) = file_path(app) else { return };
     if let Some(dir) = path.parent() {
@@ -76,8 +81,9 @@ pub fn restore(win: &WebviewWindow) -> tauri::Result<()> {
     let app = win.app_handle();
     if let Some(saved) = load(app) {
         let size = win.outer_size()?;
-        let cx = saved.x + size.width as i32 / 2;
-        let cy = saved.y + size.height as i32 / 2;
+        // The office sits in the bottom-right of the window; the top may be off screen.
+        let cx = saved.x + size.width as i32 - 120;
+        let cy = saved.y + size.height as i32 - 120;
         let visible = win.available_monitors()?.iter().any(|m| {
             let a = m.work_area();
             cx >= a.position.x

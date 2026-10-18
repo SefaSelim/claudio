@@ -17,9 +17,16 @@
     <canvas id="scene"></canvas>
     <div class="tags" id="tags"></div>
     <div class="modebadge" id="modebadge"><i class="dot"></i><span>Oturum kapalı</span></div>
-    <div class="meterbar" id="meter" hidden><span class="mb"><i></i></span><span class="mt"></span></div>
+    <button class="collapse-btn" id="collapseBtn" data-hit aria-label="Ofisi küçült" title="Ofisi küçült">
+      <svg viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l5 5-5 5"/></svg>
+    </button>
+    <div class="meterbar" id="meter" data-hit hidden><span class="mb"><i></i></span><span class="mt"></span></div>
     <button class="alarmpill" id="alarmPill" hidden><i></i><span>Alarm</span><b>Kapat</b></button>
   </div>
+
+  <button class="reopen-btn" id="reopenBtn" aria-label="Ofisi aç" title="Ofisi aç" hidden>
+    <svg viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3L2 8l5 5"/></svg>
+  </button>
 
   <nav class="dock" id="dock" data-hit>
     <div class="grp">
