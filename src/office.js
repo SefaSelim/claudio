@@ -110,6 +110,25 @@ function coffeeCorner(p, x, z) {
   cyl(p, 0.05, 0.045, 0.1, 10, C.gold, x - 0.35, 0.6, z + 0.05);
 }
 
+/** An L-shaped felt sofa in the cozy corner: a long seat along the desks, a short one along the wall. */
+function lSofa(p) {
+  const seat = 0x7f9c8a;
+  const back = 0x6a8775;
+  const cushion = 0x93ae9c;
+  // Long part, backs to the desks, seats facing the front of the room.
+  box(p, 1.9, 0.24, 0.6, seat, -3.43, 0, 2.13, 0.08);
+  box(p, 1.9, 0.6, 0.18, back, -3.43, 0, 1.9, 0.07);
+  box(p, 0.16, 0.42, 0.6, back, -2.42, 0, 2.13, 0.06);
+  // Short part along the left wall.
+  box(p, 0.6, 0.24, 0.78, seat, -4.08, 0, 2.82, 0.08);
+  box(p, 0.18, 0.6, 1.4, back, -4.3, 0, 2.5, 0.07);
+  for (const [x, z, w, d] of [[-3.75, 2.15, 0.62, 0.5], [-3.08, 2.15, 0.62, 0.5], [-4.06, 2.8, 0.5, 0.64]]) box(p, w, 0.07, d, cushion, x, 0.24, z, 0.05);
+  // A throw cushion in the corner.
+  const pillow = mesh(p, new THREE.SphereGeometry(0.15, 12, 8), flat(0xe9c79a, { flatShading: false }), -4.12, 0.38, 2.05);
+  pillow.scale.set(1, 0.7, 0.45);
+  pillow.rotation.y = PI / 4;
+}
+
 function floorLamp(p, x, z, h) {
   cyl(p, 0.18, 0.2, 0.04, 12, C.dark, x, 0, z);
   cyl(p, 0.02, 0.02, h, 6, C.dark, x, 0.04, z);
@@ -232,6 +251,16 @@ const SPOTS = [
   ]),
 ];
 
+/** Resting places in the cozy corner: four on the L sofa, one on the beanbag. */
+const REST_ROUTE = [[0.45, 2.45], [-1.65, 2.45]];
+export const REST_SEATS = [
+  { x: -3.75, z: 2.2, rot: 0, via: [-3.75, 2.75] },
+  { x: -3.08, z: 2.2, rot: 0, via: [-3.08, 2.75] },
+  { x: -4.06, z: 2.85, rot: PI / 2, via: [-3.5, 2.85] },
+  { x: -4.02, z: 2.15, rot: PI / 4, via: [-3.45, 2.75] },
+  { x: -2.1, z: 2.78, rot: -PI / 6, via: [-1.95, 3.05], bean: true },
+].map((s, i) => ({ id: `rest-${i}`, kind: 'rest', x: s.x, z: s.z, rot: s.rot, bean: Boolean(s.bean), approach: [...REST_ROUTE, s.via] }));
+
 /** The head of the meeting table, reserved for the main agent during meetings. */
 export const MEETING_HEAD = { id: 'meet-head', kind: 'meeting', x: 2.75, z: -2.82, rot: 0, approach: [...MEETING_GATE, [4.2, 0.4], [4.2, -2.82]] };
 
@@ -284,11 +313,12 @@ export function buildOffice(scene) {
   coffeeCorner(scene, -0.6, 2.88);
   plant(scene, -4.1, -1.75, 0.8);
 
-  // Cozy corner.
-  mesh(scene, new THREE.CylinderGeometry(1.0, 1.0, 0.025, 24), flat(C.rug, { flatShading: false }), -3.3, 0.012, 2.45).castShadow = false;
-  const bean = mesh(scene, new THREE.SphereGeometry(0.42, 16, 10), flat(C.bean, { flatShading: false }), -3.35, 0.25, 2.45);
+  // Cozy corner: where office agents rest between tasks.
+  mesh(scene, new THREE.CylinderGeometry(1.05, 1.05, 0.025, 24), flat(C.rug, { flatShading: false }), -3.2, 0.012, 2.6).castShadow = false;
+  lSofa(scene);
+  const bean = mesh(scene, new THREE.SphereGeometry(0.36, 16, 10), flat(C.bean, { flatShading: false }), -2.1, 0.21, 2.78);
   bean.scale.set(1, 0.62, 1);
-  floorLamp(scene, -4.05, 2.75, 1.6);
+  floorLamp(scene, -2.2, 1.98, 1.5);
 
   // Meeting room behind a glass wall at x = 1.0 (open toward the front).
   const glass = mesh(scene, new THREE.BoxGeometry(0.05, 1.55, 3.8), new THREE.MeshStandardMaterial({ color: 0xe8f4f6, transparent: true, opacity: 0.28, roughness: 0.15 }), 1.0, 0.8, -1.3);

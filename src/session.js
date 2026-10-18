@@ -29,6 +29,11 @@ export const state = {
   // { since, cause, failures } while the office is in alarm (a deploy failed, or three failures in five minutes)
   alarm: null,
   diagnostics: null, // what the bridge reports about the setup (Settings → Tanılama)
+  // Office agents: { max, available } and the library of definitions that can be added.
+  workers: { max: 5, available: true },
+  library: null, // { sources, recommended }
+  libraryBusy: null, // URL being imported
+  libraryError: null,
   error: null,
 };
 
@@ -118,9 +123,171 @@ function ensureAgent(id, type) {
   if (id === 'main') return addAgent({ id: 'main', kind: 'main', type: 'main', label: 'Claude', state: 'done', text: 'Sıra sende' });
   return addAgent({ id, kind: 'sub', type, label: labelFor(type) });
 }
+/** Detaching clears the session's own agents; office agents stay in the office. */
 function clearAgents() {
-  for (const id of [...state.agents.keys()]) removeAgent(id);
+  for (const [id, a] of [...state.agents]) if (a.kind !== 'worker') removeAgent(id);
 }
+
+// ---------- office agents ----------
+const wid = (id) => `w:${id}`;
+const workerOf = (agentId) => state.agents.get(agentId)?.workerId ?? null;
+export const isWorker = (agentId) => state.agents.get(agentId)?.kind === 'worker';
+
+function upsertWorker(w) {
+  const id = wid(w.id);
+  const patch = {
+    label: w.title,
+    type: w.name,
+    workerId: w.id,
+    description: w.description,
+    model: w.model,
+    cwd: w.cwd,
+    queued: w.queued ?? 0,
+    text: w.text || (w.state === 'working' ? 'Çalışıyor' : 'Dinleniyor'),
+    state: w.state === 'working' ? 'think' : w.state === 'error' ? 'error' : 'done',
+    resting: w.state !== 'working',
+  };
+  if (state.agents.has(id)) updateAgent(id, patch);
+  else addAgent({ id, kind: 'worker', ...patch });
+}
+
+const workerChatItem = (agent, item) => {
+  agent.chat.push(item);
+  if (agent.chat.length > 200) agent.chat.shift();
+  notify('agent_chat', { id: agent.id });
+};
+
+function onWorkerEvent(evt) {
+  const agent = evt.id ? state.agents.get(wid(evt.id)) : null;
+  switch (evt.type) {
+    case 'workers': {
+      state.workers = { max: evt.max, available: evt.available };
+      const keep = new Set(evt.list.map((w) => wid(w.id)));
+      for (const [id, a] of [...state.agents]) if (a.kind === 'worker' && !keep.has(id)) removeAgent(id);
+      for (const w of evt.list) upsertWorker(w);
+      notify('workers');
+      break;
+    }
+    case 'worker_added':
+      upsertWorker(evt.worker);
+      say(wid(evt.worker.id), 'Merhaba! Bana bir görev ver.');
+      notify('workers');
+      break;
+    case 'worker_removed':
+      removeAgent(wid(evt.id));
+      notify('workers');
+      break;
+    case 'worker_state': {
+      if (!agent) break;
+      const working = evt.state === 'working';
+      updateAgent(agent.id, {
+        state: working ? (agent.state === 'done' || agent.state === 'error' || agent.state === 'sleep' ? 'think' : agent.state) : evt.state === 'error' ? 'error' : 'done',
+        text: evt.text,
+        queued: evt.queued ?? 0,
+        resting: !working,
+        ...(working ? {} : { endedAt: Date.now() }),
+      });
+      if (!working && evt.text === 'İşini bitirdi') say(agent.id, 'Bitti, koltukta dinleniyorum');
+      break;
+    }
+    case 'worker_chat': {
+      if (!agent) break;
+      const files = evt.clientId ? outgoing.get(evt.clientId) ?? [] : [];
+      if (evt.clientId) outgoing.delete(evt.clientId);
+      const role = evt.role === 'user' ? 'user' : evt.role === 'system' ? 'system' : 'assistant';
+      workerChatItem(agent, { role, text: evt.text, pending: evt.pending ? evt.msgId : null, msgId: evt.msgId ?? null, hint: evt.pending ? 'çalışıyor · bir sonraki adımında görecek' : null, files });
+      if (role === 'assistant') say(agent.id, evt.text);
+      break;
+    }
+    case 'worker_delivered': {
+      const item = agent?.chat.find((m) => m.msgId === evt.msgId);
+      if (item && item.pending) {
+        item.pending = null;
+        item.via = 'iletildi';
+        notify('agent_chat', { id: agent.id });
+      }
+      break;
+    }
+    case 'worker_tool': {
+      if (!agent) break;
+      if (evt.phase === 'start') {
+        const detail = describeTool(evt.tool, evt.input);
+        agent.steps.push({ time: now(), tool: evt.tool, detail, status: 'run', toolUseId: evt.toolUseId });
+        if (agent.steps.length > 40) agent.steps.shift();
+        agent.tools[evt.tool] = (agent.tools[evt.tool] ?? 0) + 1;
+        updateAgent(agent.id, { state: TOOL_STATE[evt.tool] ?? 'think', text: detail });
+      } else {
+        const step = agent.steps.find((s) => s.toolUseId === evt.toolUseId);
+        if (step) {
+          step.status = evt.phase === 'fail' ? 'fail' : 'done';
+          if (evt.error) step.error = clip(evt.error, 120);
+        }
+        if (evt.phase === 'fail') agent.failures += 1;
+        updateAgent(agent.id, { state: 'think' });
+      }
+      break;
+    }
+    case 'worker_stats':
+      if (agent) updateAgent(agent.id, { tokens: evt.tokens, costUsd: evt.costUsd });
+      break;
+    case 'library':
+      state.library = { sources: evt.sources, recommended: evt.recommended };
+      notify('library');
+      break;
+    case 'library_progress':
+      state.libraryBusy = evt.busy ? evt.url : null;
+      state.libraryError = evt.error ?? null;
+      if (evt.imported) state.libraryError = null;
+      notify('library');
+      break;
+    // Meetings with office agents, run by the bridge.
+    case 'meeting_started':
+      if (!state.meeting) break;
+      state.meeting.phase = 'running';
+      notify('meeting');
+      break;
+    case 'meeting_turn':
+      if (!state.meeting) break;
+      state.meeting.speaking = wid(evt.speaker);
+      notify('meeting_lines');
+      break;
+    case 'meeting_line':
+      if (!state.meeting) break;
+      state.meeting.lines.push({ speaker: evt.speaker === 'user' ? 'user' : wid(evt.speaker), text: evt.text });
+      state.meeting.speaking = null;
+      if (evt.speaker !== 'user') say(wid(evt.speaker), evt.text);
+      notify('meeting_lines');
+      break;
+    case 'meeting_phase':
+      if (!state.meeting) break;
+      if (evt.phase === 'ending') state.meeting.phase = 'ending';
+      state.meeting.speaking = null;
+      notify('meeting');
+      break;
+    case 'meeting_summary':
+      if (!state.meeting) break;
+      state.meeting.summary = evt.summary;
+      state.meeting.phase = 'done';
+      state.meeting.speaking = null;
+      notify('meeting');
+      break;
+    default:
+      return false;
+  }
+  return true;
+}
+
+export const addWorker = (key) => send({ cmd: 'worker_add', key });
+export const removeWorker = (agentId) => send({ cmd: 'worker_remove', id: workerOf(agentId) });
+export const stopWorker = (agentId) => send({ cmd: 'worker_stop', id: workerOf(agentId) });
+export const refreshLibrary = () => send({ cmd: 'library' });
+export const importLibrary = (url) => {
+  state.libraryBusy = url;
+  state.libraryError = null;
+  notify('library');
+  return send({ cmd: 'library_import', url });
+};
+export const removeLibrarySource = (id) => send({ cmd: 'library_remove', id });
 
 // Ana ajanın Agent çağrılarındaki açıklamalar; SubagentStart'ta tipine göre eşlenir.
 const pendingLaunches = [];
@@ -379,7 +546,8 @@ function resetSessionView() {
   clearTimeout(dozeTimer);
   notify('roster');
   notify('tasks');
-  if (state.meeting) {
+  // A meeting of office agents does not belong to the attached session.
+  if (state.meeting && state.meeting.mode !== 'workers') {
     state.meeting = null;
     notify('meeting');
   }
@@ -389,6 +557,7 @@ function resetSessionView() {
 }
 
 function onEvent(evt) {
+  if (/^(workers?|worker_|library|meeting_)/.test(evt.type) && onWorkerEvent(evt)) return;
   switch (evt.type) {
     case 'ready':
       state.ready = true;
@@ -620,8 +789,17 @@ function meetingPrompt(topic, names) {
 }
 
 export function startMeeting(topic, participants) {
-  if (!state.attached || state.meeting) return;
-  const ids = ['main', ...participants.filter((id) => id !== 'main' && state.agents.has(id))];
+  if (state.meeting) return;
+  const workers = participants.filter((id) => isWorker(id));
+  if (workers.length) {
+    // Office agents meet among themselves; the bridge gives each one its turn.
+    state.meeting = { mode: 'workers', topic, participants: workers, lines: [], speaking: null, phase: 'running', summary: null, startedAt: Date.now() };
+    notify('meeting');
+    return send({ cmd: 'meeting_start', topic, participants: workers.map(workerOf) });
+  }
+  if (!state.attached) return;
+  // Subagents end their task when the main agent is interrupted, so only Claude meets.
+  const ids = ['main'];
   const names = ids.map((id) => state.agents.get(id)?.label ?? 'Claude');
   state.meeting = { topic, participants: ids, startChat: state.chat.length, phase: 'running', summary: null, notes: [], startedAt: Date.now() };
   notify('meeting');
@@ -630,6 +808,7 @@ export function startMeeting(topic, participants) {
 
 export function interjectMeeting(text) {
   if (!state.meeting || state.meeting.phase === 'done') return;
+  if (state.meeting.mode === 'workers') return send({ cmd: 'meeting_interject', text });
   state.meeting.notes.push(text);
   return sendMessage(`${MEETING_INTERJECT} ${text}`);
 }
@@ -638,6 +817,7 @@ export function endMeeting() {
   if (!state.meeting || state.meeting.phase !== 'running') return;
   state.meeting.phase = 'ending';
   notify('meeting');
+  if (state.meeting.mode === 'workers') return send({ cmd: 'meeting_end' });
   return sendMessage(`${MEETING_END} ve "## ${SUMMARY_MARK}" başlığıyla kısa bir özet yaz.`);
 }
 
@@ -704,6 +884,7 @@ export async function sendMessage(text, agentId = 'main', files = []) {
   const clientId = `c${++clientSeq}`;
   outgoing.set(clientId, files.map((f) => ({ name: f.file.name, preview: f.preview ?? null })));
   const attachments = await Promise.all(files.map(async (f) => ({ name: f.file.name, mime: f.file.type, data: await toBase64(f.file) })));
+  if (isWorker(agentId)) return send({ cmd: 'worker_send', id: workerOf(agentId), text, attachments, clientId });
   return send({ cmd: 'send', text, target: agentId === 'main' ? null : agentId, attachments, clientId });
 }
 

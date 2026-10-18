@@ -9,9 +9,10 @@ Tasarım ve yol haritası: https://claude.ai/artifact/G8Fc75oiVbtYyUCbwLJZLQ · 
 - **Ofis:** ana ajan önde kendi masasında oturur; alt ajanlar kapıdan girip boş bir masaya yürür, işleri bitince çıkar. Araç kullanımı animasyona ve baloncuklara dönüşür. Gündüz ve akşam ışığı saate göre değişir.
 - **Ajan kartı:** bir karaktere tıklayınca **Sohbet** ve **Adımlar** sekmeleri açılır. Ana ajana ya da tek bir alt ajana özel mesaj, resim ve dosya gönderilebilir (Ctrl+V ile yapıştırma, sürükle-bırak). Hızlı komutlar yazı kutusunun üstünde durur.
 - **İzin ve sorular:** izin istekleri ve `AskUserQuestion` ofisin üstünde kart olarak açılır. "Bu oturumda hep izin ver", "düzenlemeleri otomatik onayla" ve "Terminalde cevapla" seçenekleri var.
-- **Toplantı:** yan çubuktaki **Toplantı** düğmesi konu ve katılımcı sorar. Katılımcılar toplantı odasına yürür, Claude masanın başına geçer. Toplantı sırasında araya girilebilir; Claude karar gereken yerlerde soru sorar ve sonunda bir özet yazar. Özet kapatılana kadar ekranda kalır.
+- **Ofis ajanları:** kütüphaneden (projenin ajanları, kendi ajanların, eklentiler ya da içe aktarılan repolar; ör. Claude Code Game Studios) seçtiğin en fazla 5 ajan ofise gelir. Her biri kendi Claude Code oturumunda, kendi bağlamıyla çalışır; işi bitince L koltuğa geçer.
+- **Toplantı:** ofis ajanları sırayla konuşur, araya girebilirsin; çalışan ajan ara verir ve toplantıdan sonra kaldığı yerden devam eder. Sonunda bir özet yazılır.
 - **Diğer oturumlar:** ofisin bağlı olmadığı bir oturum izin ya da soru beklerse oturum listesinde işaretlenir, yan çubuktaki oturum düğmesi yanıp söner ve bildirim gelir.
-- **Ekip ve görevler:** bağlı projede kullanılabilen ajanlar, beceriler ve komutlar; birine tek satırla görev verilebilir. Oturumun görev listesi panelde ve toplantı odasındaki tahtada post-it olarak görünür.
+- **Ekip paneli:** Ofis, Kütüphane, Beceriler ve Görevler sekmeleri. Oturumun görev listesi toplantı odasındaki tahtada post-it olarak da görünür.
 - **Sinyaller ve alarm:** deploy, derleme, test ve push komutları ajanın üstünde simge olarak görünür; deploy başarısız olursa ya da hatalar üst üste gelirse ofis kırmızıya döner. Rozetin altındaki çubuk bağlam doluluğunu ve dakika başına tokenı gösterir.
 - **Tepsi ve klavye:** tepsi simgesiyle göster/gizle; izin kartlarında Enter, N ve T.
 - **Ayarlar:** ofisten cevaplama, ajanların soru sorması, her yeni görevde sorma, Windows bildirimleri, ses ve Windows ile başlatma. Ayarlar'da tanılama bölümü kurulumun her adımını denetler.
@@ -74,5 +75,6 @@ npm run tauri build
 | `src/scene.js`, `src/office.js`, `src/characters.js` | three.js ofisi, keçe Clawd karakterleri, yürüme yolları. Bir şey hareket etmiyorsa kare hızı düşer. |
 | `src/session.js` | Köprü olaylarından oturum durumu; mesaj, toplantı ve ayar komutları. |
 | `src/ui.js` | Yan çubuk, paneller, kartlar, ajan etiketleri. |
+| `sidecar/workers.mjs`, `sidecar/library.mjs` | Ofis ajanları (`claude -p --agent`, `--session-id`/`--resume` ile kalıcı oturumlar), ajan toplantıları, ajan kütüphanesi ve repo içe aktarma. |
 | `sidecar/roster.mjs`, `sidecar/signals.mjs` | Projedeki ajanlar, beceriler ve görev listesi; kabuk komutlarının sınıflandırılması. |
 | `test/` | `npm test`: okuyucular, sınıflandırıcı ve köprünün uçtan uca testleri. |

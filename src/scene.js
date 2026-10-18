@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { makeClawd, animate, accessoriesFor } from './characters.js';
-import { buildOffice, routeFromDoor, routeToDoor, routeBetween, MEETING_HEAD, MEETING_STANDING } from './office.js';
+import { buildOffice, routeFromDoor, routeToDoor, routeBetween, MEETING_HEAD, MEETING_STANDING, REST_SEATS } from './office.js';
 
 // The office scene. The main agent sits at the lead desk; subagents walk in through the
 // open front edge, take a free desk (or a meeting-room chair when the desks are full),
@@ -65,9 +65,39 @@ export function createScene(canvas) {
     return { id: `stand-${id}`, kind: 'stand', x, z, rot: Math.PI, approach: [[x, z]] };
   }
 
-  function addAgent(id, type) {
+  // Office agents get their own felt colour so they are easy to tell apart.
+  const WORKER_COLORS = [0x7fb38a, 0xb99bd8, 0xe0b25a, 0x6fb0c8, 0xd98a8a, 0x9aa7d8, 0xc9a27e];
+  const colorFor = (key) => {
+    let h = 0;
+    for (const ch of String(key)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+    return WORKER_COLORS[h % WORKER_COLORS.length];
+  };
+
+  /** A free place on the sofa or the beanbag. */
+  function restSeat() {
+    const used = taken();
+    return REST_SEATS.find((s) => !used.has(s.id)) ?? null;
+  }
+
+  /**
+   * Office agents rest in the cozy corner between tasks and walk to their desk to work.
+   * Their desk stays reserved while they rest.
+   */
+  function setResting(id, resting) {
+    const agent = agents.get(id);
+    if (!agent || agent.fading || agent.leaving || meeting?.ids.has(id)) return;
+    if (resting) {
+      if (agent.spot?.kind === 'rest' && !agent.next) return;
+      const seat = restSeat();
+      if (seat) moveTo(agent, seat);
+    } else if (agent.home && agent.spot?.id !== agent.home.id) {
+      moveTo(agent, agent.home);
+    }
+  }
+
+  function addAgent(id, type, opts = {}) {
     if (agents.has(id)) return;
-    const group = makeClawd(accessoriesFor(type));
+    const group = makeClawd(accessoriesFor(type), opts.kind === 'worker' ? { color: colorFor(opts.colorKey ?? id) } : {});
     group.userData.agentId = id;
     group.scale.setScalar(0.001);
     scene.add(group);
@@ -84,7 +114,8 @@ export function createScene(canvas) {
     }
     agent.home = freeSpot() ?? standingSpot(id);
     // During a meeting newcomers keep a desk but go straight to the meeting room.
-    agent.spot = meeting ? meetingSeat(id) : agent.home;
+    // An office agent with nothing to do yet takes a seat in the cozy corner.
+    agent.spot = meeting ? meetingSeat(id) : (opts.resting && restSeat()) || agent.home;
     if (meeting) meeting.ids.add(id);
     group.position.set(office.door[0], 0, office.door[1]);
     group.rotation.y = agent.heading = Math.PI;
@@ -278,7 +309,8 @@ export function createScene(canvas) {
       const walking = a.route.length > 0;
       if (walking) step(a, dt);
       face(a, dt);
-      animate(a.group.userData.rig, walking ? 'walk' : a.state, t, k);
+      const seated = !walking && a.spot?.kind === 'rest';
+      animate(a.group.userData.rig, walking ? 'walk' : seated ? (a.state === 'wait' ? 'sitwave' : 'sit') : a.state, t, k);
     }
     office.tick(t, k);
     renderer.render(scene, camera);
@@ -312,7 +344,7 @@ export function createScene(canvas) {
 
   // ---------- the user ----------
   // "Sen" waits by the beanbag and walks each office message over to its recipient.
-  const YOU_HOME = { id: 'you-home', kind: 'you', x: -2.6, z: 2.6, rot: Math.PI * 0.85, approach: [] };
+  const YOU_HOME = { id: 'you-home', kind: 'you', x: -1.35, z: 2.95, rot: Math.PI * 0.85, approach: [] };
   const YOU_COLOR = 0x7f9cc4;
 
   function addYou() {
@@ -370,6 +402,7 @@ export function createScene(canvas) {
     addAgent,
     setTasks,
     visit,
+    setResting,
     addYou,
     removeYou,
     handOver,

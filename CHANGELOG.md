@@ -6,6 +6,17 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Office agents: pick up to five agents from a library and they walk into the office. Each one runs in its own Claude Code session through the local CLI (no API key), keeps its context across tasks, meetings and restarts, and takes your tasks in its own card; its permission prompts and questions arrive as office cards.
+- Agent library in the team panel: the project's and your own agents, enabled plugins, a general built-in, and agents imported from any GitHub repository, with Claude Code Game Studios (49 agents) one click away.
+- An L-shaped sofa in the cozy corner: office agents sit there between tasks and walk to their desk when they get work.
+
+### Changed
+
+- Meetings with office agents are run by the office: each agent speaks in turn, read-only, in its own session; a working agent pauses and picks its work up again after the summary. Subagents no longer join meetings, which used to end their tasks.
+- The team panel's tabs are now Ofis, Kütüphane, Beceriler and Görevler; launching subagents through the main session moved out in favour of office agents.
+
 ## [0.11.1] - 2026-10-18
 
 Repairs stale hooks as soon as the bridge starts.

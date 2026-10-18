@@ -85,39 +85,54 @@ Ayarlardan:
 - **Ajanlar bana soru sorsun** kapalıysa Claude soru sormak yerine makul olanı seçer ve nedenini yazar.
 - **Her yeni görevde sor** açıksa Claude ofisten verdiğin her işten önce kısa bir soru sorar.
 
-## 7. Ekip ve görevler
+## 7. Ofis ajanları
 
-**Kareler** düğmesi, bağlı projede neyin kullanılabildiğini gösterir:
+Ofise kendi seçtiğin ajanları koyabilirsin. Her ofis ajanı **kendi Claude Code oturumunda** çalışır (bilgisayarındaki `claude` komutuyla, senin girişinle; API anahtarı gerekmez):
 
-- **Ajanlar**: yerleşik ajanlar (`general-purpose`, `Explore`, `Plan`), kendi `~/.claude/agents` klasörün, projenin `.claude/agents` klasörü ve açık eklentilerin ajanları. Çalışanların yanında "çalışıyor" yazar.
-- **Beceriler**: beceriler (`SKILL.md`) ve eğik çizgi komutları.
-- **Görevler**: Claude'un `TaskCreate` ile tuttuğu iş listesi ve ilerleme çubuğu.
+- **Ayrı bağlam:** her ajanın kendi konuşma geçmişi vardır. Ona verdiğin her görev aynı oturumda devam eder; ofisi kapatıp açsan da hatırlar.
+- **En fazla 5 ajan** aynı anda ofiste olabilir. Birini çıkarınca yerine başkasını koyabilirsin.
+- **Masa ve koltuk:** görev alan ajan masasına geçer; işi bitince rahat köşedeki **L koltuğa** (ya da puf mindere) geçip oturur.
+- **İzin ve sorular:** ajanların izin istekleri ve soruları da ofisteki kartlara düşer.
 
-Bir satıra tıklayınca küçük bir görev kutusu açılır. Yazdığın görev Claude'a "bu ajanı şu görevle başlat" isteği olarak gider; Claude ajanı başlatır ve sonucu sana özetler.
+**Kareler** düğmesi Ekip panelini açar:
 
-Projeye yeni bir ajan eklemek için `.claude/agents/<ad>.md` dosyası oluştur:
+| Sekme | Ne var |
+|---|---|
+| **Ofis** | Ofisteki ajanlar, durumları ve "Ofisten çıkar" (çarpıya iki kez tıkla). Bir ajana tıklayınca kartı açılır. |
+| **Kütüphane** | Eklenebilecek ajanlar: yerleşik genel asistan, projenin `.claude/agents` klasörü, `~/.claude/agents`, açık eklentiler ve içe aktardığın repolar. Arama kutusu ve kaynak başına açılır listeler var. **Ofise ekle** ile ajan kapıdan gelir. |
+| **Beceriler** | Projenin becerileri ve eğik çizgi komutları; seçtiğin işi bağlı oturumdaki Claude'a verir. |
+| **Görevler** | Claude'un `TaskCreate` ile tuttuğu iş listesi. |
+
+**Repodan ajan çekmek:** Kütüphane sekmesinde önerilen **Claude Code Game Studios** (49 ajan: yönetmenler, programcılar, tasarımcılar, test ve yayın uzmanları) için **İçe aktar**'a bas ya da en alttaki kutuya herhangi bir GitHub reposunun adresini yaz. Ofis yalnızca reponun `.claude/agents` (ya da `agents`) klasörünü indirir; Git kurulu olmalı. İçe aktardığın kaynağı "kaldır" ile silebilirsin.
+
+**Görev vermek:** ajana tıkla, kartındaki kutuya yaz. Ajan çalışırken yazdığın mesaj onun bir sonraki adımında ona ulaşır. **Durdur** düğmesi o anki işi keser; bağlamı kaybolmaz.
+
+Projeye kendi ajanını eklemek için `.claude/agents/<ad>.md` dosyası oluştur:
 
 ```markdown
 ---
 name: reviewer
 description: Değişiklikleri hata ve güvenlik açısından inceler.
+tools: Read, Grep, Glob
 model: sonnet
 ---
 
 Sen titiz bir kod inceleyicisisin...
 ```
 
-Paneli yeniden açınca listede görünür.
-
-Toplantı odasındaki **beyaz tahta** aynı görev listesini post-it'lerle gösterir: sarı yapılacak, mavi sürüyor, yeşil bitti, kırmızı nokta başka bir görevi bekleyen. Tahtaya tıklayınca görev listesi açılır.
+Toplantı odasındaki **beyaz tahta** bağlı oturumun görev listesini post-it'lerle gösterir: sarı yapılacak, mavi sürüyor, yeşil bitti, kırmızı nokta başka bir görevi bekleyen. Tahtaya tıklayınca görev listesi açılır.
 
 ## 8. Toplantı
 
-1. **İki kişi** düğmesine bas, konuyu yaz (ya da önerilerden birini seç), katılımcıları işaretle, **Toplantıyı başlat**.
-2. Katılımcılar toplantı odasına yürür, Claude masanın başına geçer.
-3. Claude her katılımcının durumunu anlatır, açık alt ajanlara sorar ve karar gereken yerde sana soru sorar.
-4. Alttaki kutudan **araya girebilirsin**.
-5. **Toplantıyı bitir** deyince Claude bir özet yazar. Özet, **Özeti kapat** diyene kadar ekranda kalır; **Özeti kopyala** ile panoya alabilirsin.
+**Ofis ajanlarıyla** (ofiste ajan varsa):
+
+1. **İki kişi** düğmesine bas, konuyu yaz, katılacak ajanları işaretle, **Toplantıyı başlat**.
+2. Ajanlar toplantı odasına yürür. O sırada çalışan ajan işine ara verir.
+3. Her ajan sırayla, kendi oturumunda konuşur; kendinden önce söylenenleri duyar. Toplantıda dosya değiştirmezler.
+4. Alttaki kutudan **araya girebilirsin**; söylediğin, sıradaki herkese iletilir ve yeni bir tur başlar.
+5. **Toplantıyı bitir** deyince ilk katılımcı bir özet yazar. Ara veren ajanlar toplantıdan sonra **kaldıkları yerden devam eder**; toplantı da onların bağlamında kalır.
+
+Ofiste ajan yoksa toplantıyı bağlı oturumdaki Claude yürütür (eski davranış). Alt ajanlar artık toplantıya alınmaz; toplantı onların işini yarıda kestiriyordu.
 
 ## 9. Sinyaller, alarm ve sayaç
 
