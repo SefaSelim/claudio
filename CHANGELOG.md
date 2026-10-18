@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- Importing a repository no longer shows İndiriliyor… forever when the bridge answers with an error or not at all; the error is shown and the button comes back after at most four minutes.
+
 ## [0.12.0] - 2026-10-19
 
 Office agents: up to five agents from a library, each in its own Claude Code session with its own context, meetings run by the office, and an L sofa to rest on.
