@@ -649,4 +649,6 @@ setInterval(pollTasks, 2000);
 setInterval(() => pollUsage(true), 15_000);
 emit({ type: 'ready', fake: FAKE, attached: null, ...options });
 pollSessions();
+// Repair hooks from an older install before reporting them.
+refreshHooks();
 hooksStatus();

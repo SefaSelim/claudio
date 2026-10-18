@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- Hooks from an older install are repaired as soon as the bridge starts, before it first reports their state, instead of only when the office asks for status.
+
 ## [0.11.0] - 2026-10-18
 
 A transparent dock inside the office, folding the office away, and fixes for dragging upwards, staying on screen and clicks through the empty corners.
