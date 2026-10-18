@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.12.0] - 2026-10-19
+
+Office agents: up to five agents from a library, each in its own Claude Code session with its own context, meetings run by the office, and an L sofa to rest on.
+
 ### Added
 
 - Office agents: pick up to five agents from a library and they walk into the office. Each one runs in its own Claude Code session through the local CLI (no API key), keeps its context across tasks, meetings and restarts, and takes your tasks in its own card; its permission prompts and questions arrive as office cards.
@@ -191,7 +195,8 @@ First working prototype, covering roadmap phases 0 and 1. Commits before this re
 
 - The window position is no longer saved while the window is minimized.
 
-[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.11.1...HEAD
+[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.12.0...HEAD
+[0.12.0]: https://github.com/SefaSelim/claudio/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/SefaSelim/claudio/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/SefaSelim/claudio/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/SefaSelim/claudio/compare/v0.10.0...v0.10.1
