@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-10-18
+
+Repairs stale hooks as soon as the bridge starts.
+
 ### Fixed
 
 - Hooks from an older install are repaired as soon as the bridge starts, before it first reports their state, instead of only when the office asks for status.
@@ -176,7 +180,8 @@ First working prototype, covering roadmap phases 0 and 1. Commits before this re
 
 - The window position is no longer saved while the window is minimized.
 
-[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.11.0...HEAD
+[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.11.1...HEAD
+[0.11.1]: https://github.com/SefaSelim/claudio/compare/v0.11.0...v0.11.1
 [0.11.0]: https://github.com/SefaSelim/claudio/compare/v0.10.1...v0.11.0
 [0.10.1]: https://github.com/SefaSelim/claudio/compare/v0.10.0...v0.10.1
 [0.10.0]: https://github.com/SefaSelim/claudio/compare/v0.9.0...v0.10.0
