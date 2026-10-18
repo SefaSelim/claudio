@@ -45,7 +45,17 @@ button { font: inherit; color: inherit; }
 code { font-family: var(--f-mono); font-size: 11.5px; }
 
 /* ---------- ofis ---------- */
-.office { position: absolute; right: 60px; bottom: 8px; width: 414px; height: 268px; }
+.office { position: absolute; right: 8px; bottom: 8px; width: 414px; height: 268px; clip-path: inset(0 0 0 0); transition: clip-path .45s var(--ease-out), opacity .45s var(--ease-out), transform .45s var(--ease-out); }
+/* Folds away to the right, leaving only the dock. */
+.office.collapsed { clip-path: inset(0 0 0 100%); opacity: 0; transform: translateX(24px); pointer-events: none; }
+.collapse-btn { position: absolute; left: 0; top: 50%; transform: translateY(-50%); width: 14px; height: 30px; padding: 0; border: 1px solid var(--glass-line); border-radius: 8px; background: var(--glass); color: var(--muted); display: grid; place-items: center; cursor: pointer; opacity: .55; transition: opacity .15s, color .15s, width .15s; z-index: 2; }
+.collapse-btn:hover { opacity: 1; color: var(--accent); width: 16px; }
+.collapse-btn svg { width: 8px; height: 12px; }
+.reopen-btn { position: absolute; right: 54px; bottom: 127px; width: 16px; height: 30px; padding: 0; border: 1px solid var(--glass-line); border-radius: 8px; background: var(--glass); box-shadow: var(--shadow); color: var(--ink); display: grid; place-items: center; cursor: pointer; animation: reopenIn .35s var(--spring) .2s both; }
+.reopen-btn:hover { color: var(--accent); transform: translateX(-2px); }
+.reopen-btn svg { width: 8px; height: 12px; }
+.reopen-btn[hidden] { display: none; }
+@keyframes reopenIn { from { opacity: 0; transform: translateX(8px); } }
 .office canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
 .tags { position: absolute; inset: 0; pointer-events: none; overflow: hidden; border-radius: 12px; }
 .tag { position: absolute; transform: translate(-50%, -100%); display: flex; flex-direction: column; align-items: center; gap: 3px; pointer-events: auto; cursor: pointer; }
@@ -63,7 +73,11 @@ code { font-family: var(--f-mono); font-size: 11.5px; }
 @keyframes flip { from { transform: rotateX(90deg); opacity: 0; } }
 
 /* ---------- yan çubuk ---------- */
-.dock { position: absolute; right: 8px; bottom: 8px; width: 44px; height: 268px; border-radius: 14px; background: var(--glass); border: 1px solid var(--glass-line); box-shadow: var(--shadow); display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 5px 0; }
+.dock { position: absolute; right: 8px; bottom: 8px; width: 44px; height: 268px; border-radius: 14px; background: transparent; border: 1px solid transparent; box-shadow: none; transition: background .3s, border-color .3s, box-shadow .3s; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 5px 0; }
+/* Transparent over the room; a soft halo keeps the icons readable on any background. */
+.dock .dk svg { filter: drop-shadow(0 0 1.5px var(--surface)) drop-shadow(0 0 3px var(--surface)); }
+/* With the office folded away the dock stands alone on the desktop and gets its glass back. */
+.dock.solo { background: var(--glass); border-color: var(--glass-line); box-shadow: var(--shadow); }
 .dock .grp { display: flex; flex-direction: column; gap: 2px; }
 .dk { position: relative; width: 30px; height: 29px; border-radius: 10px; border: 0; background: transparent; display: grid; place-items: center; cursor: pointer; transition: transform .12s var(--ease-out), background .16s; }
 .dk:hover { background: var(--accent-soft); transform: scale(1.08); }

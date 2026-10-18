@@ -40,6 +40,6 @@ jobs:
       - run: npm ci
       # tauri-build expects the frontend bundle to exist.
       - run: npx vite build
-      - name: cargo check
+      - name: cargo test
         working-directory: src-tauri
-        run: cargo check --locked
+        run: cargo test --lib --locked

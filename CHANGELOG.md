@@ -6,6 +6,19 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Collapse: a small arrow on the office's left edge folds the office away to the right, leaving only the dock; an arrow beside the dock brings it back. The state is remembered and the scene stops drawing while folded.
+
+### Changed
+
+- The dock is transparent and sits inside the office, flush with its right edge; it gets its glass background back only while the office is folded away.
+
+### Fixed
+
+- Only the room itself catches clicks; the empty corners around the isometric office now let clicks through to the windows behind.
+- The office can be dragged upwards as well as down, and when it is let go partly off screen it slides back inside with a small margin.
+
 ## [0.10.1] - 2026-10-18
 
 Fixes three ways an office message could be lost, stuck or delivered late.

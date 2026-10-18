@@ -22,11 +22,15 @@ Ofis kapalıyken hook'lar hiçbir şeyi engellemez; Claude Code her zamanki gibi
 
 ## 3. Yan çubuk
 
+Yan çubuk ofisin sağ kenarında, şeffaf olarak durur. Ofisin yalnızca odanın kendisi tıklanır; çevresindeki boş köşelerden tıklama alttaki pencerelere geçer.
+
+**Küçültme:** ofisin sol kenarındaki küçük **›** oku ofisi sağa doğru kapatır, yalnızca yan çubuk kalır. Yan çubuğun solundaki **‹** oku ofisi geri açar. Ofis kapalıyken çizim durur; durum bir sonraki açılışta hatırlanır.
+
 Yukarıdan aşağıya:
 
 | Düğme | Ne yapar |
 |---|---|
-| Altı nokta | Sürükleyerek ofisi taşı. Çift tıklayınca sağ alta döner. |
+| Altı nokta | Sürükleyerek ofisi her yöne taşı. Ekranın dışına taşarsa bırakınca kenardan biraz boşlukla içeri kayar. Çift tıklayınca sağ alta döner. |
 | Zincir | Oturumlar: bağlan, bağlantıyı kes. Başka bir oturum seni beklerse burası yanıp söner. |
 | Konuşma balonu | Claude'a yaz. Kırmızı sayı, bekleyen izin ve soru sayısı. |
 | İki kişi | Toplantı. |

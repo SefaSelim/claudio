@@ -1,4 +1,5 @@
 mod autostart;
+mod drag;
 mod position;
 mod sidecar;
 mod tray;
@@ -14,18 +15,39 @@ use position::PendingMove;
 use sidecar::Sidecar;
 
 /// Ön yüzün bildirdiği tıklanabilir bir alan (CSS piksel, pencereye göre).
-#[derive(Deserialize, Clone, Copy, Debug)]
-struct Rect {
-    x: f64,
-    y: f64,
-    w: f64,
-    h: f64,
+/// With `poly`, only the polygon inside the box counts (the office's diamond shape).
+#[derive(Deserialize, Clone, Debug)]
+pub(crate) struct Rect {
+    pub x: f64,
+    pub y: f64,
+    pub w: f64,
+    pub h: f64,
+    #[serde(default)]
+    pub poly: Option<Vec<[f64; 2]>>,
 }
 
 impl Rect {
     fn contains(&self, x: f64, y: f64) -> bool {
-        x >= self.x && x <= self.x + self.w && y >= self.y && y <= self.y + self.h
+        let in_box = x >= self.x && x <= self.x + self.w && y >= self.y && y <= self.y + self.h;
+        match &self.poly {
+            Some(points) if in_box && points.len() >= 3 => point_in_polygon(points, x, y),
+            _ => in_box,
+        }
     }
+}
+
+/// Even-odd ray casting.
+fn point_in_polygon(points: &[[f64; 2]], x: f64, y: f64) -> bool {
+    let mut inside = false;
+    let mut j = points.len() - 1;
+    for i in 0..points.len() {
+        let ([xi, yi], [xj, yj]) = (points[i], points[j]);
+        if (yi > y) != (yj > y) && x < (xj - xi) * (y - yi) / (yj - yi) + xi {
+            inside = !inside;
+        }
+        j = i;
+    }
+    inside
 }
 
 #[derive(Default)]
@@ -63,6 +85,19 @@ fn set_autostart(on: bool) -> Result<(), String> {
     autostart::set(on)
 }
 
+/// Grip pressed: the shell moves the window until the button is released.
+/// `content` is the visible part (office and dock) in window CSS px.
+#[tauri::command]
+fn begin_drag(window: WebviewWindow, content: Rect) {
+    drag::begin(window, content);
+}
+
+/// Keeps the visible part on screen (after a resize, a collapse, or at start-up).
+#[tauri::command]
+fn settle_position(window: WebviewWindow, content: Rect) {
+    std::thread::spawn(move || drag::settle(&window, content));
+}
+
 /// Taşıma tutamağına çift tıklanınca pencereyi sağ alta geri götürür.
 #[tauri::command]
 fn reset_position(window: WebviewWindow) -> Result<(), String> {
@@ -71,7 +106,7 @@ fn reset_position(window: WebviewWindow) -> Result<(), String> {
 
 /// Tıklamayı yok sayan pencere fare olayı almaz; bu yüzden imleci kendimiz yoklarız.
 /// İmleç bir alanın üstündeyse pencere tıklanabilir olur, değilse tıklama alttaki pencereye geçer.
-fn start_click_through(win: WebviewWindow, regions: Arc<HitRegions>) {
+fn start_click_through(win: WebviewWindow, regions: Arc<HitRegions>, dragging: Arc<std::sync::atomic::AtomicBool>) {
     thread::spawn(move || {
         let mut ignoring: Option<bool> = None;
         loop {
@@ -89,7 +124,7 @@ fn start_click_through(win: WebviewWindow, regions: Arc<HitRegions>) {
                 .lock()
                 .map(|r| r.iter().any(|rect| rect.contains(x, y)))
                 .unwrap_or(false);
-            let want_ignore = !hit;
+            let want_ignore = !hit && !dragging.load(std::sync::atomic::Ordering::Relaxed);
             if ignoring != Some(want_ignore) && win.set_ignore_cursor_events(want_ignore).is_ok() {
                 ignoring = Some(want_ignore);
             }
@@ -104,6 +139,7 @@ pub fn run() {
         .plugin(tauri_plugin_notification::init())
         .manage(regions.clone())
         .manage(PendingMove::default())
+        .manage(drag::Dragging::default())
         .invoke_handler(tauri::generate_handler![
             set_hit_regions,
             quit_app,
@@ -111,7 +147,9 @@ pub fn run() {
             sidecar_send,
             get_autostart,
             set_autostart,
-            set_tray_status
+            set_tray_status,
+            begin_drag,
+            settle_position
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::Moved(pos) = event {
@@ -128,7 +166,8 @@ pub fn run() {
             position::restore(&win)?;
             win.show()?;
             position::start_saver(app.handle().clone());
-            start_click_through(win, regions.clone());
+            let dragging = app.state::<drag::Dragging>().0.clone();
+            start_click_through(win, regions.clone(), dragging);
             tray::create(app.handle())?;
             app.manage(Sidecar::spawn(app.handle()));
             Ok(())
@@ -142,4 +181,27 @@ pub fn run() {
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn polygon_hit_ignores_the_empty_corners_of_the_box() {
+        // A diamond inside a 100 x 100 box, like the office floor inside its canvas.
+        let r = Rect { x: 0.0, y: 0.0, w: 100.0, h: 100.0, poly: Some(vec![[50.0, 0.0], [100.0, 50.0], [50.0, 100.0], [0.0, 50.0]]) };
+        assert!(r.contains(50.0, 50.0));
+        assert!(r.contains(70.0, 40.0));
+        assert!(!r.contains(5.0, 5.0));
+        assert!(!r.contains(95.0, 95.0));
+        assert!(!r.contains(150.0, 50.0));
+    }
+
+    #[test]
+    fn plain_rect_still_works() {
+        let r = Rect { x: 10.0, y: 10.0, w: 20.0, h: 20.0, poly: None };
+        assert!(r.contains(15.0, 25.0));
+        assert!(!r.contains(5.0, 25.0));
+    }
 }
