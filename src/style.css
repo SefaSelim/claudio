@@ -1,6 +1,6 @@
 /* Pencere düzeni (sağ alt köşeye yaslı, pencere 482×750):
    dock: right 8, bottom 8, 44×268
-   office: right 60, bottom 8, 414×268
+   office: right 8, bottom 8, 414×268 (the dock sits inside its right 52 px)
    stack (istek kartları + panel): right 8, bottom 286, 364 genişlik */
 :root {
   --ink: #2a211c;
@@ -331,7 +331,7 @@ code { font-family: var(--f-mono); font-size: 11.5px; }
 .meterbar.warm .mb i { background: var(--s-compact); }
 .meterbar.hot .mb i { background: var(--s-error); }
 .meterbar.hot .mt { color: var(--s-error); }
-.alarmpill { position: absolute; right: 8px; top: 8px; display: flex; align-items: center; gap: 6px; font: inherit; font-size: 10.5px; font-weight: 700; color: #fff; padding: 3px 4px 3px 9px; border-radius: 999px; border: 0; background: var(--s-error); cursor: pointer; box-shadow: 0 2px 10px rgba(194, 59, 48, .45); animation: pop .3s var(--spring); }
+.alarmpill { position: absolute; right: 60px; top: 8px; display: flex; align-items: center; gap: 6px; font: inherit; font-size: 10.5px; font-weight: 700; color: #fff; padding: 3px 4px 3px 9px; border-radius: 999px; border: 0; background: var(--s-error); cursor: pointer; box-shadow: 0 2px 10px rgba(194, 59, 48, .45); animation: pop .3s var(--spring); }
 .alarmpill i { width: 7px; height: 7px; border-radius: 50%; background: #fff; animation: ring 1.3s infinite; --s-wait: #fff; }
 .alarmpill b { font-size: 10px; padding: 1px 7px; border-radius: 999px; background: rgba(255, 255, 255, .22); }
 .alarmpill:hover b { background: rgba(255, 255, 255, .35); }
