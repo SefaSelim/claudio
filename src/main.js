@@ -108,8 +108,11 @@ setTimeout(settle, 300);
 
 // Development aid: open the Vite page in a normal browser with ?scene-demo to see agents
 // walk in, work, and leave without Tauri or a Claude Code session.
-if (!('__TAURI_INTERNALS__' in window) && new URLSearchParams(location.search).has('scene-demo')) {
-  document.documentElement.style.background = '#8a8f99';
+// The public web demo (VITE_DEMO=1, deployed to GitHub Pages) plays the same demo on load.
+const PUBLIC_DEMO = import.meta.env.VITE_DEMO === '1';
+if (!('__TAURI_INTERNALS__' in window) && (PUBLIC_DEMO || new URLSearchParams(location.search).has('scene-demo'))) {
+  if (PUBLIC_DEMO) import('./demo-shell.js').then((m) => m.mountDemoShell());
+  else document.documentElement.style.background = '#8a8f99';
   import('./dev-demo.js').then((m) => m.runDevDemo());
   // ?scene-demo&hits outlines what catches clicks; everything else falls through.
   if (new URLSearchParams(location.search).has('hits')) {

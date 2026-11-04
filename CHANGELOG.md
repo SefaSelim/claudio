@@ -10,6 +10,7 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 - Turn recap: when a turn ends, the chat gets one quiet row with how long it took, how many tools ran, failures, subagents and the files Claude edited. Short turns that changed nothing stay silent.
 - Sessions the office is not attached to are marked "bitti · sıra sende" in the session list when their turn ends, so it is clear which terminal is waiting for you. Unlike permissions and questions this does not blink or send a notification.
+- A public web demo of the office, deployed to GitHub Pages: a scripted session plays on load, with links to replay it with the alarm, download the installer and read the source.
 
 ### Fixed
 

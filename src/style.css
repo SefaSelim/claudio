@@ -375,3 +375,14 @@ code { font-family: var(--f-mono); font-size: 11.5px; }
 .libimport { padding: 0; }
 .m .tl + * { margin-top: 0; }
 .m .tl.spk { text-transform: none; letter-spacing: 0; font-size: 10.5px; }
+
+/* Public web demo only (VITE_DEMO builds): a desktop backdrop and an explanatory note. */
+html.demo, html.demo body { background: radial-gradient(1200px 700px at 20% 15%, #4b5a78 0%, transparent 60%), linear-gradient(135deg, #2b3247 0%, #1c2030 55%, #3a2e3f 100%); }
+.demo-note { position: absolute; left: 24px; top: 24px; width: min(380px, calc(100vw - 32px)); padding: 16px 18px 14px; border-radius: 16px; background: rgba(255, 252, 247, .94); color: #2a2320; box-shadow: 0 10px 40px rgba(0, 0, 0, .35); user-select: text; z-index: 5; }
+.demo-note b { font-size: 15px; }
+.demo-note p { margin: 8px 0 0; line-height: 1.45; }
+.demo-links { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.demo-links a { color: #c4572a; font-weight: 700; text-decoration: none; }
+.demo-links a:hover { text-decoration: underline; }
+.demo-x { position: absolute; right: 8px; top: 6px; border: 0; background: none; font-size: 18px; line-height: 1; color: #8a7f78; cursor: pointer; }
+@media (max-width: 760px) { .demo-note { left: 16px; top: 16px; } }
