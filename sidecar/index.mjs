@@ -352,9 +352,11 @@ function workerHook(worker, event, body, res) {
         return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: NO_QUESTIONS } };
       }
       return holdRequest('question', body.session_id, body, res, agentId);
-    case 'PostToolUse': {
+    case 'PostToolUse':
+    case 'PostToolUseFailure': {
+      // A failed call is still a step: queued messages land there instead of waiting for the next success.
       const text = pool.takeQueued(body.session_id);
-      return text ? { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: text } } : {};
+      return text ? { hookSpecificOutput: { hookEventName: event, additionalContext: text } } : {};
     }
     case 'Stop': {
       const text = pool.takeQueued(body.session_id);
@@ -445,7 +447,7 @@ export async function handleHook(body, res) {
     attached.cwd = body.new_cwd;
     sendRoster();
   }
-  if (event === 'UserPromptSubmit' || event === 'PreToolUse' || event === 'PostToolUse') setBusy(true);
+  if (event === 'UserPromptSubmit' || event === 'PreToolUse' || event === 'PostToolUse' || event === 'PostToolUseFailure') setBusy(true);
   if (event === 'SubagentStart' && body.agent_id) startSubagentTail(sessionId, body.agent_id);
   if (event === 'SubagentStop' && body.agent_id) stopSubagentTail(body.agent_id);
 
@@ -461,11 +463,13 @@ export async function handleHook(body, res) {
       }
       if (options.answerInOffice) return holdRequest('question', sessionId, body, res);
       return {};
-    case 'PostToolUse': {
+    case 'PostToolUse':
+    case 'PostToolUseFailure': {
+      // After a failed call too: a run of failing commands must not hold the user's message back.
       const msgs = takeMessages(sessionId, body.agent_id ?? null);
       if (!msgs.length) return {};
       markDelivered(msgs, 'araç sonrası');
-      return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: formatMessages(msgs) } };
+      return { hookSpecificOutput: { hookEventName: event, additionalContext: formatMessages(msgs) } };
     }
     case 'SubagentStop': {
       const msgs = takeMessages(sessionId, body.agent_id);
@@ -527,13 +531,18 @@ function detach(why) {
 }
 
 // ---------- HTTP sunucusu ----------
+const MAX_BODY = 5_000_000;
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = '';
     req.setEncoding('utf8');
     req.on('data', (d) => {
       data += d;
-      if (data.length > 5_000_000) req.destroy();
+      // Destroying the request alone never ends the promise and leaves the handler hanging.
+      if (data.length > MAX_BODY) {
+        req.destroy();
+        reject(Object.assign(new Error('hook body too large'), { tooLarge: true }));
+      }
     });
     req.on('end', () => resolve(data));
     req.on('error', reject);
@@ -569,6 +578,7 @@ const server = http.createServer(async (req, res) => {
     }
     res.writeHead(404).end();
   } catch (err) {
+    if (err?.tooLarge) return;
     log('[köprü]', err.stack ?? err);
     if (!res.writableEnded) res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
   }

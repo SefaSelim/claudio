@@ -234,3 +234,24 @@ test('detaching drops messages that never reached the session', async () => {
     assert.deepEqual((await b.post({ hook_event_name: 'PostToolUse', session_id: SID, tool_name: 'Read' })).json, {});
   } finally { await b.stop(); }
 });
+
+test('a message lands after a failed tool call as well', async () => {
+  const b = await attached({ status: 'busy' });
+  try {
+    b.cmd({ cmd: 'send', text: 'hata olursa dur' });
+    await b.until((e) => e.type === 'queued');
+    const r = await b.post({ hook_event_name: 'PostToolUseFailure', session_id: SID, tool_name: 'Bash', error: 'Exit code 1' });
+    assert.equal(r.json.hookSpecificOutput.hookEventName, 'PostToolUseFailure');
+    assert.match(r.json.hookSpecificOutput.additionalContext, /hata olursa dur/);
+    assert.equal((await b.until((e) => e.type === 'delivered')).via, 'araç sonrası');
+  } finally { await b.stop(); }
+});
+
+test('an oversized hook body is dropped without stalling the bridge', async () => {
+  const b = await attached();
+  try {
+    await b.post({ hook_event_name: 'PostToolUse', session_id: SID, tool_input: { content: 'x'.repeat(5_100_000) } }).catch(() => null);
+    const r = await b.post({ hook_event_name: 'PostToolUse', session_id: SID, tool_name: 'Read' });
+    assert.equal(r.status, 200);
+  } finally { await b.stop(); }
+});

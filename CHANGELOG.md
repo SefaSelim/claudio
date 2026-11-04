@@ -6,6 +6,11 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- An office message sent while Claude keeps hitting failing commands now lands after the next failed call instead of waiting for a successful one; office agents get the same.
+- A hook body over 5 MB no longer leaves a request hanging in the bridge.
+
 ## [0.12.1] - 2026-10-19
 
 Fixes a library import that could stay on İndiriliyor… forever.
