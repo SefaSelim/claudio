@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Turn recap: when a turn ends, the chat gets one quiet row with how long it took, how many tools ran, failures, subagents and the files Claude edited. Short turns that changed nothing stay silent.
+
 ### Fixed
 
 - An office message sent while Claude keeps hitting failing commands now lands after the next failed call instead of waiting for a successful one; office agents get the same.
