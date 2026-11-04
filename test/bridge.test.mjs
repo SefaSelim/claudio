@@ -133,6 +133,10 @@ test('other sessions: passed through, and marked while they wait', async () => {
     await b.until((e) => e.type === 'sessions' && e.list[0].waiting === 'permission');
     await b.post({ hook_event_name: 'PostToolUse', session_id: 'other', tool_name: 'Bash' });
     await b.until((e) => e.type === 'sessions' && e.list[0].waiting === null);
+    await b.post({ hook_event_name: 'Stop', session_id: 'other' });
+    await b.until((e) => e.type === 'sessions' && e.list[0].waiting === 'done');
+    await b.post({ hook_event_name: 'UserPromptSubmit', session_id: 'other' });
+    await b.until((e) => e.type === 'sessions' && e.list[0].waiting === null);
   } finally { await b.stop(); }
 });
 

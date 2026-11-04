@@ -99,7 +99,9 @@ const meetingKind = (text) => {
   return t.startsWith(session.MEETING_START) || t.startsWith(session.MEETING_END) ? 'sys' : null;
 };
 
-const WAITING_LABEL = { permission: 'izin bekliyor', question: 'soru soruyor' };
+const WAITING_LABEL = { permission: 'izin bekliyor', question: 'soru soruyor', done: 'bitti · sıra sende' };
+// A finished turn is shown, but only a permission or a question makes the dock blink.
+const urgent = (x) => x.waiting === 'permission' || x.waiting === 'question';
 const sessionName = (x) => x.name || String(x.cwd ?? '').split(/[\\/]/).filter(Boolean).pop() || x.sessionId.slice(0, 8);
 
 const shortPath = (p) => String(p ?? '').split(/[\\/]/).filter(Boolean).slice(-2).join('/');
@@ -177,10 +179,11 @@ export function createUI(scene) {
     const dot = s.attached ? 'var(--ok)' : !s.hooksInstalled || s.error ? 'var(--warn)' : 'var(--muted)';
     const condot = dock.querySelector('[data-open="session"] .condot');
     // Another session waiting for the user outranks the connection colour.
-    const others = s.sessions.filter((x) => x.waiting && x.sessionId !== s.attached?.sessionId).length;
+    const others = s.sessions.filter((x) => urgent(x) && x.sessionId !== s.attached?.sessionId).length;
+    const finished = s.sessions.filter((x) => x.waiting === 'done' && x.sessionId !== s.attached?.sessionId).length;
     condot.style.background = others ? 'var(--s-wait)' : dot;
     condot.classList.toggle('alert', Boolean(others));
-    dock.querySelector('[data-open="session"] .tip').textContent = others ? `Oturum · ${others} oturum seni bekliyor` : 'Oturum';
+    dock.querySelector('[data-open="session"] .tip').textContent = others ? `Oturum · ${others} oturum seni bekliyor` : finished ? `Oturum · ${finished} oturum bitirdi` : 'Oturum';
     for (const btn of dock.querySelectorAll('[data-open]')) {
       const k = btn.dataset.open;
       const on = panel && (panel.type === k || (k === 'chat' && panel.type === 'agent' && panel.id === 'main'));
@@ -364,7 +367,7 @@ export function createUI(scene) {
       ? s.sessions.map((x) => {
           const on = s.attached?.sessionId === x.sessionId;
           const busy = x.status === 'busy';
-          return `<button class="sess${on ? ' on' : ''}" data-sid="${esc(x.sessionId)}" style="--c:var(${busy ? '--s-write' : '--ok'})"><i class="dot${busy ? ' pulse' : ''}"></i><span class="grow"><b>${esc(x.name || shortPath(x.cwd) || x.sessionId.slice(0, 8))}</b><span>${esc(shortPath(x.cwd))} · ${busy ? 'çalışıyor' : 'boşta'} · ${ago(x.updatedAt)}</span></span>${on ? '<span class="st" style="--c:var(--ok)"><i class="dot"></i>bağlı</span>' : x.waiting ? `<span class="st live" style="--c:var(--s-wait)"><i class="dot"></i>${WAITING_LABEL[x.waiting] ?? 'bekliyor'}</span>` : ''}</button>`;
+          return `<button class="sess${on ? ' on' : ''}" data-sid="${esc(x.sessionId)}" style="--c:var(${busy ? '--s-write' : '--ok'})"><i class="dot${busy ? ' pulse' : ''}"></i><span class="grow"><b>${esc(x.name || shortPath(x.cwd) || x.sessionId.slice(0, 8))}</b><span>${esc(shortPath(x.cwd))} · ${busy ? 'çalışıyor' : 'boşta'} · ${ago(x.updatedAt)}</span></span>${on ? '<span class="st" style="--c:var(--ok)"><i class="dot"></i>bağlı</span>' : x.waiting ? `<span class="st${urgent(x) ? ' live' : ''}" style="--c:var(${urgent(x) ? '--s-wait' : '--ok'})"><i class="dot"></i>${WAITING_LABEL[x.waiting] ?? 'bekliyor'}</span>` : ''}</button>`;
         }).join('')
       : '<p class="desc">Açık Claude Code oturumu bulunamadı. Bir terminalde <code>claude</code> başlatınca burada görünür.</p>';
     const sub = s.attached ? `Bağlı: ${esc(s.attached.name || shortPath(s.attached.cwd))}` : 'Bağlanmak için bir oturum seç';
@@ -1166,7 +1169,7 @@ export function createUI(scene) {
   function updateTray() {
     const s = session.state;
     const reqs = s.requests.length;
-    const others = s.sessions.filter((x) => x.waiting && x.sessionId !== s.attached?.sessionId).length;
+    const others = s.sessions.filter((x) => urgent(x) && x.sessionId !== s.attached?.sessionId).length;
     const parts = [reqs ? `${reqs} istek seni bekliyor` : '', others ? `${others} oturum seni bekliyor` : ''].filter(Boolean);
     invoke('set_tray_status', { text: parts.join(' · ') }).catch(() => {});
   }
@@ -1211,7 +1214,8 @@ export function createUI(scene) {
       if (!x.waiting || x.sessionId === s.attached?.sessionId) { for (const k of waitingSeen) if (k.startsWith(`${x.sessionId}:`)) waitingSeen.delete(k); continue; }
       if (waitingSeen.has(key)) continue;
       waitingSeen.add(key);
-      alertUser(`${sessionName(x)} ${WAITING_LABEL[x.waiting] ?? 'bekliyor'}`, 'Bu oturum ofise bağlı değil; terminalde cevapla ya da ofisi ona bağla.');
+      // A finished turn is marked in the list only; someone typing in that terminal needs no ping.
+      if (x.waiting !== 'done') alertUser(`${sessionName(x)} ${WAITING_LABEL[x.waiting] ?? 'bekliyor'}`, 'Bu oturum ofise bağlı değil; terminalde cevapla ya da ofisi ona bağla.');
     }
   }
 
