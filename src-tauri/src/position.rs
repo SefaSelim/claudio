@@ -1,4 +1,4 @@
-//! Pencere konumunu hatırlar: sürüklenince kaydeder, açılışta geri yükler.
+//! Remembers the window position: saves it after a drag, restores it on start.
 
 use std::fs;
 use std::path::PathBuf;
@@ -17,8 +17,8 @@ struct Saved {
     y: i32,
 }
 
-/// Son taşınma konumu ve zamanı. Sürükleme sırasında her harekette diske yazmamak için
-/// konum burada tutulur, hareket durduktan sonra bir kez kaydedilir.
+/// The last move position and time. To avoid writing to disk on every move during a drag,
+/// the position is kept here and saved once the movement stops.
 #[derive(Default)]
 pub struct PendingMove(Mutex<Option<(PhysicalPosition<i32>, Instant)>>);
 
@@ -59,7 +59,7 @@ fn forget(app: &AppHandle) {
     }
 }
 
-/// Pencereyi bulunduğu monitörün çalışma alanının (görev çubuğu hariç) sağ alt köşesine koyar.
+/// Puts the window in the bottom-right corner of its monitor's work area (excluding the taskbar).
 pub fn place_bottom_right(win: &WebviewWindow) -> tauri::Result<()> {
     let monitor = match win.current_monitor()? {
         Some(m) => Some(m),
@@ -75,8 +75,8 @@ pub fn place_bottom_right(win: &WebviewWindow) -> tauri::Result<()> {
     Ok(())
 }
 
-/// Kayıtlı konum bir monitörün içinde kalıyorsa onu kullanır; yoksa sağ alta koyar.
-/// Monitör çıkarıldıysa ya da çözünürlük değiştiyse pencere ekran dışında kaybolmaz.
+/// Uses the saved position if it is inside a monitor; otherwise the bottom-right corner.
+/// If a monitor was unplugged or the resolution changed, the window does not get lost off screen.
 pub fn restore(win: &WebviewWindow) -> tauri::Result<()> {
     let app = win.app_handle();
     if let Some(saved) = load(app) {
@@ -98,13 +98,13 @@ pub fn restore(win: &WebviewWindow) -> tauri::Result<()> {
     place_bottom_right(win)
 }
 
-/// Kaydı siler ve pencereyi sağ alta geri götürür.
+/// Deletes the saved position and moves the window back to the bottom-right corner.
 pub fn reset(win: &WebviewWindow) -> tauri::Result<()> {
     forget(win.app_handle());
     place_bottom_right(win)
 }
 
-/// Hareket 400 ms durunca son konumu diske yazar.
+/// Writes the last position to disk once movement has stopped for 400 ms.
 pub fn start_saver(app: AppHandle) {
     thread::spawn(move || loop {
         thread::sleep(Duration::from_millis(200));

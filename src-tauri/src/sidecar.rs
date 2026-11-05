@@ -1,5 +1,5 @@
-//! Node yan sürecini (sidecar/index.mjs) başlatır, ona satır satır JSON yazar
-//! ve gelen her satırı ön yüze `sidecar` olayı olarak iletir.
+//! Starts the Node sidecar (sidecar/index.mjs), writes JSON lines to it
+//! and forwards every line it prints to the frontend as a `sidecar` event.
 
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
@@ -36,7 +36,7 @@ impl Sidecar {
             Err(err) => Sidecar {
                 stdin: Mutex::new(None),
                 child: Mutex::new(None),
-                error: Some(format!("Yan süreç başlatılamadı (Node.js kurulu mu?): {err}")),
+                error: Some(format!("Could not start the bridge (is Node.js installed?): {err}")),
             },
         }
     }
@@ -87,14 +87,14 @@ impl Sidecar {
             return Err(err.clone());
         }
         let mut guard = self.stdin.lock().unwrap();
-        let stdin = guard.as_mut().ok_or("Yan süreç kapalı.")?;
+        let stdin = guard.as_mut().ok_or("The bridge is not running.")?;
         writeln!(stdin, "{line}")
             .and_then(|_| stdin.flush())
-            .map_err(|e| format!("Yan sürece yazılamadı: {e}"))
+            .map_err(|e| format!("Could not write to the bridge: {e}"))
     }
 
     pub fn shutdown(&self) {
-        // stdin'i kapatmak yan sürece oturumu kapatıp çıkmasını söyler.
+        // Closing stdin tells the bridge to shut down and exit.
         self.stdin.lock().unwrap().take();
         if let Some(mut child) = self.child.lock().unwrap().take() {
             let _ = child.kill();

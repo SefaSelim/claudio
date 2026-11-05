@@ -2,8 +2,8 @@ import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { createTurnTracker, formatRecap } from './turns.js';
 
-// Köprüden gelen olayları ofis durumuna çevirir.
-// Ajan durumu hook'lardan, sohbet bağlı oturumun kayıt dosyasından, kartlar izin/soru isteklerinden gelir.
+// Turns bridge events into office state.
+// Agent state comes from hooks, chat from the attached session's transcript, cards from permission/question requests.
 
 export const state = {
   ready: false,
@@ -16,7 +16,7 @@ export const state = {
   sessions: [], // { sessionId, name, cwd, status, version, entrypoint, updatedAt }
   attached: null, // { sessionId, name, cwd }
   busy: false, // whether the attached session is mid-turn
-  mode: null, // oturumun izin modu (hook girdisinden)
+  mode: null, // the session permission mode (from hook input)
   agents: new Map(), // id -> { id, kind, type, label, description, state, text, steps }
   chat: [], // { role: 'user' | 'assistant' | 'system', text, pending?, via? }
   requests: [], // { requestId, kind: 'permission' | 'question', toolName, input, agentId }
@@ -29,7 +29,7 @@ export const state = {
   usage: null,
   // { since, cause, failures } while the office is in alarm (a deploy failed, or three failures in five minutes)
   alarm: null,
-  diagnostics: null, // what the bridge reports about the setup (Settings → Tanılama)
+  diagnostics: null, // what the bridge reports about the setup (Settings → Diagnostics)
   // Office agents: { max, available } and the library of definitions that can be added.
   workers: { max: 5, available: true },
   library: null, // { sources, recommended }
@@ -64,7 +64,7 @@ export function send(command) {
   });
 }
 
-// ---------- ajanlar ----------
+// ---------- agents ----------
 
 const TOOL_STATE = {
   Read: 'read', Grep: 'read', Glob: 'read', LS: 'read', NotebookRead: 'read', WebFetch: 'read', WebSearch: 'read',
@@ -93,9 +93,9 @@ export function describeTool(name, input) {
   return name;
 }
 
-const TYPE_LABEL = { 'general-purpose': 'Genel', Explore: 'Explore', Plan: 'Plan' };
+const TYPE_LABEL = { 'general-purpose': 'General', Explore: 'Explore', Plan: 'Plan' };
 function labelFor(type) {
-  const baseLabel = TYPE_LABEL[type] ?? type ?? 'Ajan';
+  const baseLabel = TYPE_LABEL[type] ?? type ?? 'Agent';
   const taken = [...state.agents.values()].filter((a) => a.label.startsWith(baseLabel)).length;
   return taken ? `${baseLabel} ${taken + 1}` : baseLabel;
 }
@@ -121,7 +121,7 @@ function removeAgent(id) {
 }
 function ensureAgent(id, type) {
   if (state.agents.has(id)) return state.agents.get(id);
-  if (id === 'main') return addAgent({ id: 'main', kind: 'main', type: 'main', label: 'Claude', state: 'done', text: 'Sıra sende' });
+  if (id === 'main') return addAgent({ id: 'main', kind: 'main', type: 'main', label: 'Claude', state: 'done', text: 'Your turn' });
   return addAgent({ id, kind: 'sub', type, label: labelFor(type) });
 }
 /** Detaching clears the session's own agents; office agents stay in the office. */
@@ -144,7 +144,7 @@ function upsertWorker(w) {
     model: w.model,
     cwd: w.cwd,
     queued: w.queued ?? 0,
-    text: w.text || (w.state === 'working' ? 'Çalışıyor' : 'Dinleniyor'),
+    text: w.text || (w.state === 'working' ? 'Working' : 'Resting'),
     state: w.state === 'working' ? 'think' : w.state === 'error' ? 'error' : 'done',
     resting: w.state !== 'working',
   };
@@ -171,7 +171,7 @@ function onWorkerEvent(evt) {
     }
     case 'worker_added':
       upsertWorker(evt.worker);
-      say(wid(evt.worker.id), 'Merhaba! Bana bir görev ver.');
+      say(wid(evt.worker.id), 'Hi! Give me a task.');
       notify('workers');
       break;
     case 'worker_removed':
@@ -188,7 +188,7 @@ function onWorkerEvent(evt) {
         resting: !working,
         ...(working ? {} : { endedAt: Date.now() }),
       });
-      if (!working && evt.text === 'İşini bitirdi') say(agent.id, 'Bitti, koltukta dinleniyorum');
+      if (!working && evt.text === 'Finished its task') say(agent.id, 'Done, resting on the sofa');
       break;
     }
     case 'worker_chat': {
@@ -196,7 +196,7 @@ function onWorkerEvent(evt) {
       const files = evt.clientId ? outgoing.get(evt.clientId) ?? [] : [];
       if (evt.clientId) outgoing.delete(evt.clientId);
       const role = evt.role === 'user' ? 'user' : evt.role === 'system' ? 'system' : 'assistant';
-      workerChatItem(agent, { role, text: evt.text, pending: evt.pending ? evt.msgId : null, msgId: evt.msgId ?? null, hint: evt.pending ? 'çalışıyor · bir sonraki adımında görecek' : null, files });
+      workerChatItem(agent, { role, text: evt.text, pending: evt.pending ? evt.msgId : null, msgId: evt.msgId ?? null, hint: evt.pending ? 'working · sees it at the next step' : null, files });
       if (role === 'assistant') say(agent.id, evt.text);
       break;
     }
@@ -204,7 +204,7 @@ function onWorkerEvent(evt) {
       const item = agent?.chat.find((m) => m.msgId === evt.msgId);
       if (item && item.pending) {
         item.pending = null;
-        item.via = 'iletildi';
+        item.via = 'delivered';
         notify('agent_chat', { id: agent.id });
       }
       break;
@@ -292,14 +292,14 @@ export const importLibrary = (url) => {
   importTimer = setTimeout(() => {
     if (state.libraryBusy !== url) return;
     state.libraryBusy = null;
-    state.libraryError = 'İçe aktarma yanıt vermedi. Ofisi kapatıp yeniden açıp tekrar dene.';
+    state.libraryError = 'The import did not answer. Close and reopen the office, then try again.';
     notify('library');
   }, 4 * 60_000);
   return send({ cmd: 'library_import', url });
 };
 export const removeLibrarySource = (id) => send({ cmd: 'library_remove', id });
 
-// Ana ajanın Agent çağrılarındaki açıklamalar; SubagentStart'ta tipine göre eşlenir.
+// Descriptions from the main agent's Agent calls; matched by type at SubagentStart.
 const pendingLaunches = [];
 const now = () => new Date().toTimeString().slice(0, 5);
 const say = (id, text) => notify('say', { id, text: clip(text, 70) });
@@ -344,12 +344,12 @@ function startAlarm(cause) {
     state.alarm.cause = cause;
     notify('alarm');
   }
-  alarmTimer = setTimeout(() => endAlarm('on dakikadır yeni hata yok'), ALARM_QUIET);
+  alarmTimer = setTimeout(() => endAlarm('no new failures for ten minutes'), ALARM_QUIET);
 }
 
 /** /alarm in the chat: declare one by hand. */
 export function startManualAlarm(cause) {
-  startAlarm(cause || 'elle başlatıldı');
+  startAlarm(cause || 'started by hand');
 }
 
 /** A system row only the office sees (slash command output). */
@@ -361,16 +361,16 @@ export function systemNote(text) {
 export function clearChatView() {
   state.chat = [];
   if (state.meeting) state.meeting.startChat = 0;
-  systemRow('Ofisteki sohbet görünümü temizlendi. Oturumun kendisi değişmedi.');
+  systemRow("The office's chat view was cleared. The session itself is unchanged.");
 }
 
 /** Ends the alarm with a one-line postmortem. */
-export function endAlarm(why = 'elle kapatıldı') {
+export function endAlarm(why = 'turned off by hand') {
   if (!state.alarm) return;
   clearTimeout(alarmTimer);
   const mins = Math.max(1, Math.round((Date.now() - state.alarm.since) / 60_000));
   const failures = failureLog.filter((f) => f.at >= state.alarm.since - ALARM_WINDOW).length;
-  systemRow(`✅ Alarm bitti (${why}) · ${mins} dk · ${failures} hata · son sebep: ${state.alarm.cause}`);
+  systemRow(`✅ Alarm over (${why}) · ${mins} min · ${failures} failure${failures === 1 ? '' : 's'} · last cause: ${state.alarm.cause}`);
   state.alarm = null;
   failureLog.length = 0;
   notify('alarm');
@@ -380,11 +380,11 @@ function noteFailure(what) {
   const now = Date.now();
   failureLog.push({ at: now, what });
   while (failureLog.length && now - failureLog[0].at > ALARM_WINDOW) failureLog.shift();
-  if (failureLog.length >= 3) startAlarm(`5 dakikada ${failureLog.length} hata · son: ${what}`);
+  if (failureLog.length >= 3) startAlarm(`${failureLog.length} failures in 5 minutes · last: ${what}`);
   else if (state.alarm) startAlarm(what);
 }
 
-const SIGNAL_NAME = { deploy: 'deploy', build: 'derleme', test: 'testler', push: 'push' };
+const SIGNAL_NAME = { deploy: 'deploy', build: 'build', test: 'tests', push: 'push' };
 
 function onSignal(evt) {
   const id = evt.agentId && state.agents.has(evt.agentId) ? evt.agentId : 'main';
@@ -406,26 +406,26 @@ function onSignal(evt) {
   for (const s of done) {
     const target = s.target ? ` (${s.target})` : '';
     if (s.result === 'fail') {
-      const why = s.detail || s.error || 'hata';
+      const why = s.detail || s.error || 'error';
       if (s.kind === 'deploy') {
-        systemRow(`❌ ${who}: deploy başarısız${target} · ${why}`);
-        startAlarm(`deploy başarısız${target}: ${why}`);
+        systemRow(`❌ ${who}: deploy failed${target} · ${why}`);
+        startAlarm(`deploy failed${target}: ${why}`);
       } else {
         if (s.kind === 'build' || s.kind === 'test') redKinds.set(s.kind, s.target);
-        systemRow(`❌ ${who}: ${SIGNAL_NAME[s.kind]} başarısız${target} · ${why}`);
+        systemRow(`❌ ${who}: ${SIGNAL_NAME[s.kind]} failed${target} · ${why}`);
       }
-      say(id, `${SIGNAL_NAME[s.kind]} başarısız`);
+      say(id, `${SIGNAL_NAME[s.kind]} failed`);
     } else if (s.kind === 'deploy') {
-      systemRow(`🚀 ${who}: deploy tamam${target}`);
-      say(id, 'Yayında!');
-      if (state.alarm) endAlarm('deploy başarılı');
+      systemRow(`🚀 ${who}: deploy done${target}`);
+      say(id, "It's live!");
+      if (state.alarm) endAlarm('deploy succeeded');
     } else if (s.kind === 'push') {
-      if (s.toDefault) systemRow(`🎉 ${who}: ${s.target}'a push edildi`);
-      say(id, s.toDefault ? `${s.target}'a gönderdim` : 'Push ettim');
+      if (s.toDefault) systemRow(`🎉 ${who}: pushed to ${s.target}`);
+      say(id, s.toDefault ? `Pushed to ${s.target}` : 'Pushed');
     } else if (redKinds.has(s.kind)) {
       redKinds.delete(s.kind);
-      systemRow(`✅ ${who}: ${SIGNAL_NAME[s.kind]} yeniden yeşil${target}`);
-      if (state.alarm && !redKinds.size) endAlarm(`${SIGNAL_NAME[s.kind]} yeşile döndü`);
+      systemRow(`✅ ${who}: ${SIGNAL_NAME[s.kind]} green again${target}`);
+      if (state.alarm && !redKinds.size) endAlarm(`${SIGNAL_NAME[s.kind]} back to green`);
     }
   }
 }
@@ -447,7 +447,7 @@ function scheduleDoze() {
   clearTimeout(dozeTimer);
   dozeTimer = setTimeout(() => {
     const main = state.agents.get('main');
-    if (main?.state === 'done' && !state.requests.some((r) => r.agentId === 'main')) updateAgent('main', { state: 'sleep', text: 'Uyukluyor · yazınca uyanır' });
+    if (main?.state === 'done' && !state.requests.some((r) => r.agentId === 'main')) updateAgent('main', { state: 'sleep', text: 'Dozing · wakes up when you write' });
   }, DOZE_AFTER);
 }
 
@@ -464,7 +464,7 @@ function onHook(evt) {
   switch (evt.event) {
     case 'UserPromptSubmit':
       clearTimeout(dozeTimer);
-      updateAgent('main', { state: 'think', text: 'Düşünüyor…', error: null });
+      updateAgent('main', { state: 'think', text: 'Thinking…', error: null });
       break;
     case 'PreToolUse': {
       const agent = ensureAgent(id, evt.agent_type);
@@ -494,23 +494,23 @@ function onHook(evt) {
       }
       agent.failures += 1;
       // An interrupted call (Esc) is not a failure of the work.
-      if (!/interrupt/i.test(evt.error ?? '')) noteFailure(`${agent.label}: ${evt.tool_name} başarısız`);
-      updateAgent(id, { state: 'think', text: `${evt.tool_name} başarısız` });
-      say(id, `${evt.tool_name} başarısız oldu`);
+      if (!/interrupt/i.test(evt.error ?? '')) noteFailure(`${agent.label}: ${evt.tool_name} failed`);
+      updateAgent(id, { state: 'think', text: `${evt.tool_name} failed` });
+      say(id, `${evt.tool_name} failed`);
       break;
     }
     case 'StopFailure':
-      updateAgent('main', { state: 'error', text: `API hatası · ${evt.error ?? 'bilinmiyor'}`, error: evt.error ?? 'unknown' });
-      state.chat.push({ role: 'system', text: `Tur bir API hatasıyla bitti (${evt.error ?? 'bilinmiyor'}). Claude Code tekrar deneyebilir ya da senden bekler.` });
+      updateAgent('main', { state: 'error', text: `API error · ${evt.error ?? 'unknown'}`, error: evt.error ?? 'unknown' });
+      state.chat.push({ role: 'system', text: `The turn ended with an API error (${evt.error ?? 'unknown'}). Claude Code may retry or wait for you.` });
       notify('chat');
       break;
     case 'PreCompact':
-      if (id === 'main') updateAgent('main', { state: 'compact', text: evt.trigger === 'auto' ? 'Bağlam doldu, topluyor' : 'Bağlamı topluyor' });
+      if (id === 'main') updateAgent('main', { state: 'compact', text: evt.trigger === 'auto' ? 'Context full, compacting' : 'Compacting context' });
       break;
     case 'PostCompact':
       if (id === 'main') {
-        updateAgent('main', { state: state.busy ? 'think' : 'done', text: 'Bağlam toplandı' });
-        say('main', 'Masamı topladım');
+        updateAgent('main', { state: state.busy ? 'think' : 'done', text: 'Context compacted' });
+        say('main', 'Tidied up my desk');
       }
       break;
     case 'PostToolUse': {
@@ -524,20 +524,20 @@ function onHook(evt) {
       const i = pendingLaunches.findIndex((p) => p.type === evt.agent_type);
       const launch = i >= 0 ? pendingLaunches.splice(i, 1)[0] : null;
       const agent = ensureAgent(evt.agent_id, evt.agent_type);
-      updateAgent(agent.id, { description: launch?.description ?? '', text: launch?.description || 'Başladı' });
-      say(agent.id, launch?.description || 'Göreve başladım');
+      updateAgent(agent.id, { description: launch?.description ?? '', text: launch?.description || 'Started' });
+      say(agent.id, launch?.description || 'Starting my task');
       break;
     }
     case 'SubagentStop':
-      updateAgent(evt.agent_id, { state: 'done', text: 'Bitti', endedAt: Date.now() });
-      say(evt.agent_id, 'Bitti, rapor Claude\'da');
+      updateAgent(evt.agent_id, { state: 'done', text: 'Done', endedAt: Date.now() });
+      say(evt.agent_id, 'Done, Claude has the report');
       setTimeout(() => removeAgent(evt.agent_id), 6000);
       break;
     case 'Notification':
-      if (evt.notification_type === 'idle_prompt') updateAgent('main', { state: 'done', text: 'Sıra sende' });
+      if (evt.notification_type === 'idle_prompt') updateAgent('main', { state: 'done', text: 'Your turn' });
       break;
     case 'Stop':
-      updateAgent('main', { state: 'done', text: 'Sıra sende' });
+      updateAgent('main', { state: 'done', text: 'Your turn' });
       scheduleDoze();
       break;
   }
@@ -587,11 +587,11 @@ function onEvent(evt) {
           send({ cmd: 'set_option', options: Object.fromEntries(differ.map((k) => [k, saved[k]])) });
         }
       }
-      // Sayfa yenilendiyse köprü hâlâ bir oturuma bağlı olabilir.
+      // After a page reload the bridge may still be attached to a session.
       if (evt.attached && !state.attached) {
         state.attached = { sessionId: evt.attached, name: '', cwd: '' };
         ensureAgent('main');
-        state.chat.push({ role: 'system', text: 'Bağlantı sürüyor; önceki mesajlar bu pencerede yok.' });
+        state.chat.push({ role: 'system', text: 'Still attached; earlier messages are not in this window.' });
         notify('chat');
       }
       notify('status');
@@ -614,7 +614,7 @@ function onEvent(evt) {
       state.attached = { sessionId: evt.sessionId, name: evt.name, cwd: evt.cwd };
       state.busy = Boolean(evt.busy);
       ensureAgent('main');
-      if (state.busy) updateAgent('main', { state: 'think', text: 'Çalışıyor…' });
+      if (state.busy) updateAgent('main', { state: 'think', text: 'Working…' });
       notify('status');
       notify('chat');
       notify('requests');
@@ -661,8 +661,8 @@ function onEvent(evt) {
       break;
     case 'decided_alone': {
       const id = evt.agentId && state.agents.has(evt.agentId) ? evt.agentId : 'main';
-      state.chat.push({ role: 'system', text: `Soru sorma kapalı; ${state.agents.get(id)?.label ?? 'Claude'} kendi karar verdi${evt.question ? `: "${evt.question}"` : ''}.` });
-      say(id, 'Kendim karar veriyorum');
+      state.chat.push({ role: 'system', text: `Questions are off; ${state.agents.get(id)?.label ?? 'Claude'} decided on its own${evt.question ? `: "${evt.question}"` : ''}.` });
+      say(id, 'Deciding on my own');
       notify('chat');
       notify('decided', { id, question: evt.question });
       break;
@@ -689,7 +689,7 @@ function onEvent(evt) {
       notify('usage');
       if (evt.percent >= 85 && contextWarned !== evt.sessionId) {
         contextWarned = evt.sessionId;
-        systemRow(`Claude'un masası doluyor: bağlam %${evt.percent}. Claude Code yakında konuşmayı özetleyebilir.`);
+        systemRow(`Claude's desk is filling up: context ${evt.percent}%. Claude Code may compact the conversation soon.`);
       }
       break;
     }
@@ -708,23 +708,23 @@ function onEvent(evt) {
     case 'request': {
       const agentId = evt.agentId && state.agents.has(evt.agentId) ? evt.agentId : 'main';
       state.requests.push({ ...evt, agentId });
-      updateAgent(agentId, { state: 'wait', text: evt.kind === 'question' ? 'Sana soruyor' : `İzin bekliyor · ${describeTool(evt.toolName, evt.input)}` });
+      updateAgent(agentId, { state: 'wait', text: evt.kind === 'question' ? 'Asking you' : `Waiting for permission · ${describeTool(evt.toolName, evt.input)}` });
       notify('requests');
       break;
     }
     case 'request_cancelled': {
       const req = state.requests.find((r) => r.requestId === evt.requestId);
       state.requests = state.requests.filter((r) => r.requestId !== evt.requestId);
-      if (req) updateAgent(req.agentId, { state: 'think', text: 'Terminalde cevaplandı' });
+      if (req) updateAgent(req.agentId, { state: 'think', text: 'Answered in the terminal' });
       notify('requests');
       break;
     }
     case 'queued': {
-      const target = evt.target ? state.agents.get(evt.target)?.label ?? 'alt ajan' : null;
+      const target = evt.target ? state.agents.get(evt.target)?.label ?? 'subagent' : null;
       const files = outgoing.get(evt.clientId) ?? (evt.files ?? []).map((name) => ({ name, preview: null }));
       outgoing.delete(evt.clientId);
       // Where the message will land: the next step if the session is working, a wake-up if idle.
-      const hint = evt.target ? 'bir sonraki adımında görecek' : evt.busy ? 'Claude meşgul · bir sonraki adımında görecek' : 'Claude boşta · uyandırılıyor';
+      const hint = evt.target ? 'sees it at the next step' : evt.busy ? 'Claude is busy · sees it at the next step' : 'Claude is idle · waking it up';
       const item = { role: 'user', text: target ? `→ ${target}: ${evt.text}` : evt.text, pending: evt.id, hint, files };
       state.chat.push(item);
       // A message to a subagent also shows in that subagent's own chat.
@@ -749,7 +749,7 @@ function onEvent(evt) {
       resetSessionView();
       state.attached = null;
       state.ready = false;
-      state.error = 'Köprü kapandı; ofisi yeniden başlat.';
+      state.error = 'The bridge stopped; restart the office.';
       notify('status');
       notify('chat');
       notify('requests');
@@ -764,7 +764,7 @@ function onEvent(evt) {
       }
       if (evt.clientId) {
         outgoing.delete(evt.clientId);
-        state.chat.push({ role: 'system', text: `Gönderilemedi: ${evt.message}` });
+        state.chat.push({ role: 'system', text: `Could not send: ${evt.message}` });
         notify('chat');
       }
       notify('error');
@@ -772,7 +772,7 @@ function onEvent(evt) {
   }
 }
 
-// ---------- komutlar ----------
+// ---------- commands ----------
 
 export const attach = (sessionId) => send({ cmd: 'attach', sessionId });
 export const detach = () => send({ cmd: 'detach' });
@@ -783,34 +783,34 @@ export const requestDiagnostics = () => send({ cmd: 'diagnostics' });
 
 /** Ask Claude to launch a subagent of this type; Claude stays in charge of the launch. */
 export function launchAgent(name, task) {
-  return sendMessage(`"${name}" alt ajanını (subagent_type: ${name}) şu görevle başlat ve sonucunu bana özetle:\n${task}`);
+  return sendMessage(`Launch the "${name}" subagent (subagent_type: ${name}) with this task and summarize the result for me:\n${task}`);
 }
 
 /** Ask Claude to use a skill or run a slash command's instructions for this request. */
 export function useSkill(kind, name, task) {
-  const what = kind === 'command' ? `${name} komutunun talimatlarını` : `"${name}" becerisini`;
-  return sendMessage(`${what} kullanarak şunu yap:\n${task}`);
+  const what = kind === 'command' ? `the instructions of the ${name} command` : `the "${name}" skill`;
+  return sendMessage(`Using ${what}, do this:\n${task}`);
 }
 
 // ---------- meetings ----------
 // A meeting is a structured prompt to the main agent. The office walks everyone to the
 // meeting room, shows the conversation, and ends when Claude writes the summary heading.
 
-export const SUMMARY_MARK = 'Toplantı özeti';
-export const MEETING_START = '[Toplantı] Konu:';
-export const MEETING_INTERJECT = '[Toplantı, araya giriyorum]';
-export const MEETING_END = '[Toplantı] Toplantıyı bitir';
+export const SUMMARY_MARK = 'Meeting summary';
+export const MEETING_START = '[Meeting] Topic:';
+export const MEETING_INTERJECT = '[Meeting, jumping in]';
+export const MEETING_END = '[Meeting] End the meeting';
 
 function meetingPrompt(topic, names) {
   return [
     `${MEETING_START} ${topic}`,
-    `Katılımcılar: ${names.join(', ')}`,
+    `Participants: ${names.join(', ')}`,
     '',
-    'Kısa bir toplantı yapalım:',
-    '1. Her katılımcının durumunu bir iki cümleyle anlat. Açık alt ajanlar varsa onlara SendMessage ile sor; yoksa bildiklerinden özetle.',
-    '2. Karar gereken noktalarda AskUserQuestion ile bana çoktan seçmeli soru sor.',
-    '3. Araya girersem notlarımı dikkate al.',
-    `4. Bitirince "## ${SUMMARY_MARK}" başlığı altında kararları ve görevleri madde madde yaz.`,
+    "Let's hold a short meeting:",
+    "1. Give each participant's status in a sentence or two. If subagents are running, ask them with SendMessage; otherwise summarize what you know.",
+    '2. Where a decision is needed, ask me a multiple-choice question with AskUserQuestion.',
+    '3. If I jump in, take my notes into account.',
+    `4. When done, list the decisions and tasks as bullet points under a "## ${SUMMARY_MARK}" heading.`,
   ].join('\n');
 }
 
@@ -844,7 +844,7 @@ export function endMeeting() {
   state.meeting.phase = 'ending';
   notify('meeting');
   if (state.meeting.mode === 'workers') return send({ cmd: 'meeting_end' });
-  return sendMessage(`${MEETING_END} ve "## ${SUMMARY_MARK}" başlığıyla kısa bir özet yaz.`);
+  return sendMessage(`${MEETING_END} and write a short summary under a "## ${SUMMARY_MARK}" heading.`);
 }
 
 export function closeMeeting() {
@@ -890,7 +890,7 @@ export function setOption(key, value) {
 
 export const setAnswerInOffice = (value) => setOption('answerInOffice', value);
 
-// Gönderilen eklerin önizlemeleri; köprü 'queued' ile clientId'yi geri yollayınca sohbet öğesine bağlanır.
+// Previews of sent attachments; tied to the chat item when the bridge sends the clientId back with 'queued'.
 const outgoing = new Map(); // clientId -> [{ name, preview }]
 let clientSeq = 0;
 
@@ -903,7 +903,7 @@ const toBase64 = (file) =>
   });
 
 /**
- * agentId 'main' değilse mesaj doğrudan o alt ajana (onun bir sonraki aracında) teslim edilir.
+ * If agentId is not 'main', the message goes straight to that subagent (at its next tool call).
  * files: { file: File, preview?: string }[]
  */
 export async function sendMessage(text, agentId = 'main', files = []) {
@@ -918,7 +918,7 @@ export function answerRequest(requestId, result) {
   const req = state.requests.find((r) => r.requestId === requestId);
   state.requests = state.requests.filter((r) => r.requestId !== requestId);
   if (req) {
-    const text = result.behavior === 'allow' ? 'Devam ediyor' : result.behavior === 'terminal' ? 'Terminalde bekliyor' : 'Reddedildi';
+    const text = result.behavior === 'allow' ? 'Carrying on' : result.behavior === 'terminal' ? 'Waiting in the terminal' : 'Denied';
     updateAgent(req.agentId, { state: result.behavior === 'terminal' ? 'wait' : 'think', text });
   }
   notify('requests');
@@ -930,7 +930,7 @@ export async function connect() {
     try {
       onEvent(JSON.parse(e.payload));
     } catch (err) {
-      console.error('köprü olayı okunamadı', err, e.payload);
+      console.error('could not read a bridge event', err, e.payload);
     }
   });
   await send({ cmd: 'status' });

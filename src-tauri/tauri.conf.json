@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Claudio Ofis",
+  "productName": "Claudio Office",
   "version": "0.13.0",
   "identifier": "com.sefaselim.claudio",
   "build": {
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Claudio Ofis",
+        "title": "Claudio Office",
         "width": 482,
         "height": 750,
         "transparent": true,

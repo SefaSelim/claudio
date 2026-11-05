@@ -16,7 +16,7 @@ test('a turn recap counts tools, failures, subagents and edited files', () => {
   t += 95_000;
   const r = tr.finish();
   assert.deepEqual(r, { ms: 95_000, tools: 4, failures: 1, files: ['C:\\x\\src\\ui.js'], agents: 1 });
-  assert.equal(formatRecap(r), 'Tur bitti · 1 dk 35 sn · 4 araç · 1 başarısız · 1 alt ajan · 1 dosya düzenlendi (ui.js)');
+  assert.equal(formatRecap(r), 'Turn done · 1 min 35 s · 4 tools · 1 failed · 1 subagent · 1 file edited (ui.js)');
   assert.equal(tr.finish(), null);
 });
 
@@ -24,7 +24,7 @@ test('a turn without tools has no recap; durations read naturally', () => {
   const tr = createTurnTracker(() => 0);
   tr.hook({ event: 'UserPromptSubmit' });
   assert.equal(tr.finish(), null);
-  assert.equal(formatDuration(4_400), '4 sn');
-  assert.equal(formatDuration(120_000), '2 dk');
-  assert.equal(formatDuration(3_900_000), '1 sa 5 dk');
+  assert.equal(formatDuration(4_400), '4 s');
+  assert.equal(formatDuration(120_000), '2 min');
+  assert.equal(formatDuration(3_900_000), '1 h 5 min');
 });

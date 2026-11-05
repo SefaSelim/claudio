@@ -1,6 +1,6 @@
-// Çalışan Claude Code oturumlarını listeler ve kayıt (transcript) dosyalarını okur.
-// ~/.claude/sessions/<pid>.json ve kayıtların satır biçimi belgelenmemiş; bu yüzden
-// yalnızca ihtiyaç duyulan alanlar okunur ve tanınmayan her şey sessizce atlanır.
+// Lists running Claude Code sessions and reads their transcript files.
+// ~/.claude/sessions/<pid>.json and the transcript line format are undocumented, so
+// only the fields that are needed are read and anything unrecognised is skipped quietly.
 
 import fs from 'node:fs';
 import os from 'node:os';
@@ -17,7 +17,7 @@ function isAlive(pid) {
   }
 }
 
-/** Açık oturumlar, en son güncellenen önce. Gizli alanlar (token, soket yolu) dışarı çıkmaz. */
+/** Running sessions, most recently updated first. Private fields (token, socket path) never leave. */
 export function listSessions() {
   const dir = path.join(CLAUDE_DIR, 'sessions');
   let files = [];
@@ -41,7 +41,7 @@ export function listSessions() {
         updatedAt: data.updatedAt || data.startedAt || 0,
       });
     } catch {
-      // Yazılırken okunan ya da biçimi farklı dosya: atla.
+      // A file read mid-write or in another format: skip it.
     }
   }
   return sessions.sort((a, b) => b.updatedAt - a.updatedAt);
@@ -55,7 +55,7 @@ export function findTranscript(sessionId) {
       if (fs.existsSync(file)) return file;
     }
   } catch {
-    // projects klasörü yok
+    // no projects folder
   }
   return null;
 }
@@ -63,7 +63,7 @@ export function findTranscript(sessionId) {
 const NOISE = /^<(command-|local-command|system-reminder|bash-|task-notification)/;
 
 /**
- * Bir kayıt satırını sohbet öğesine çevirir; sohbetle ilgisi yoksa null.
+ * Turns a transcript line into a chat item; null when it has nothing to do with the chat.
  * Subagent transcripts mark every record as a sidechain, so they pass { sidechain: true }.
  */
 export function parseRecord(line, { sidechain = false } = {}) {
@@ -91,7 +91,7 @@ export function parseRecord(line, { sidechain = false } = {}) {
   return null;
 }
 
-/** Kayıt dosyasının sonunu izler: önce son mesajları verir, sonra eklenen satırları. */
+/** Tails a transcript file: first the last messages, then each line that is added. */
 export class TranscriptTail {
   #file;
   #onItem;
@@ -106,13 +106,13 @@ export class TranscriptTail {
     this.#options = options;
   }
 
-  /** Son `limit` sohbet öğesini döndürür ve izlemeyi başlatır. */
+  /** Returns the last `limit` chat items and starts tailing. */
   start(limit = 30) {
     const size = fs.statSync(this.#file).size;
     const from = Math.max(0, size - 512 * 1024);
     const text = this.#read(from, size);
     const lines = text.split('\n');
-    if (from > 0) lines.shift(); // yarım kalan ilk satır
+    if (from > 0) lines.shift(); // the first line is partial
     const history = lines.map((l) => parseRecord(l, this.#options)).filter(Boolean).slice(-limit);
     this.#offset = size;
     this.#timer = setInterval(() => this.#poll(), 400);
@@ -143,7 +143,7 @@ export class TranscriptTail {
     } catch {
       return;
     }
-    if (size < this.#offset) this.#offset = 0; // dosya yeniden yazıldı
+    if (size < this.#offset) this.#offset = 0; // the file was rewritten
     if (size === this.#offset) return;
     const chunk = this.#partial + this.#read(this.#offset, size);
     this.#offset = size;

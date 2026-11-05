@@ -64,7 +64,7 @@ test('outcome: success, failure blame and output judging', () => {
   assert.deepEqual(ok.map((s) => s.result), ['ok', 'ok']);
   const bad = outcome(sigs, { ok: false, error: 'Exit code 1\n  3 failing\n  Error: expected 2 to equal 3' });
   assert.deepEqual(bad.map((s) => s.result), [null, 'fail']);
-  assert.equal(bad[1].detail, '3 başarısız');
+  assert.equal(bad[1].detail, '3 failed');
   const piped = outcome(classify('npm test | tail'), { ok: true, output: 'Tests: 2 failed, 10 passed' });
   assert.equal(piped[0].result, 'fail');
   const silent = outcome(classify('npm test | tail'), { ok: true, output: '' });

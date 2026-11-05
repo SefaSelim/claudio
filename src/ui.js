@@ -2,7 +2,7 @@ import { invoke } from '@tauri-apps/api/core';
 import * as session from './session.js';
 import { alertUser, loadAlertPrefs, saveAlertPrefs, playChime } from './alerts.js';
 
-// Yan çubuk, üstte açılan paneller, izin/soru kartları ve ajan etiketleri.
+// Dock, the panels that open above it, permission/question cards and agent tags.
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s ?? '').replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
@@ -17,35 +17,35 @@ const MAX_BYTES = 15 * 1024 * 1024;
 
 // Quick commands. They are plain messages; the session decides what to do with them.
 const MAIN_CHIPS = [
-  { label: 'Ne yapıyorsun?', text: 'Şu an ne yapıyorsun? İki cümleyle anlat.' },
-  { label: 'Durum özeti', text: 'Şu ana kadar yapılanları ve sıradaki adımı üç maddede özetle.' },
-  { label: 'Bitince dur', text: 'Şu anki adımı bitirince dur ve benden talimat bekle.' },
+  { label: 'What are you doing?', text: 'What are you doing right now? Tell me in two sentences.' },
+  { label: 'Status summary', text: 'Summarize what has been done so far and the next step in three bullet points.' },
+  { label: 'Stop when done', text: 'Stop after the current step and wait for my instructions.' },
 ];
 const SUB_CHIPS = [
-  { label: 'Ne yapıyorsun?', text: 'Şu an ne yapıyorsun? Bir cümleyle anlat.' },
-  { label: 'Kapsamı daralt', text: 'Kapsamı daralt ve en önemli kısmı bitirip rapor ver.' },
-  { label: 'Bitir ve raporla', text: 'Elindeki işi toparla ve hemen raporla.' },
+  { label: 'What are you doing?', text: 'What are you doing right now? Tell me in one sentence.' },
+  { label: 'Narrow the scope', text: 'Narrow the scope, finish the most important part and report back.' },
+  { label: 'Wrap up and report', text: 'Wrap up what you have and report right away.' },
 ];
 
 const STATE_LABEL = {
-  think: 'düşünüyor', read: 'okuyor', write: 'yazıyor', bash: 'komut çalıştırıyor', wait: 'seni bekliyor', talk: 'görev veriyor',
-  done: 'sıra sende', sleep: 'uyukluyor', compact: 'bağlamı topluyor', error: 'hata aldı',
+  think: 'thinking', read: 'reading', write: 'writing', bash: 'running a command', wait: 'waiting for you', talk: 'delegating',
+  done: 'your turn', sleep: 'dozing', compact: 'compacting context', error: 'hit an error',
 };
-const SOURCE_LABEL = { builtin: 'yerleşik', user: 'kullanıcı', project: 'proje' };
-const sourceLabel = (s) => SOURCE_LABEL[s] ?? (String(s).startsWith('plugin:') ? `eklenti · ${s.slice(7)}` : s);
+const SOURCE_LABEL = { builtin: 'built-in', user: 'user', project: 'project' };
+const sourceLabel = (s) => SOURCE_LABEL[s] ?? (String(s).startsWith('plugin:') ? `plugin · ${s.slice(7)}` : s);
 // Props over a character while a deploy, build, test run or push is running, and how it ended.
 const SIGNAL_ICON = { deploy: '🚀', build: '🔨', test: '🧪', push: '⬆️' };
 const signalIcon = (sig) => (!sig || sig.state === 'none' ? '' : sig.state === 'ok' ? '✅' : sig.state === 'fail' ? '❌' : SIGNAL_ICON[sig.kind] ?? '');
 // Office-only chat commands. Anything else that starts with "/" goes to Claude as text.
 const SLASH_HELP = [
-  ['/durum', 'oturumun kısa özeti'],
-  ['/ajanlar', 'ofisteki ajanlar ve ne yaptıkları'],
-  ['/görevler', 'görev listesini aç'],
-  ['/toplantı [konu]', 'toplantı ayarla'],
-  ['/alarm [sebep]', 'alarmı elle başlat'],
-  ['/alarm-bitti', 'alarmı kapat'],
-  ['/temizle', 'ofisteki sohbet görünümünü temizle'],
-  ['/yardım', 'bu liste'],
+  ['/status', 'a short summary of the session'],
+  ['/agents', 'the agents in the office and what they are doing'],
+  ['/tasks', 'open the task list'],
+  ['/meeting [topic]', 'set up a meeting'],
+  ['/alarm [reason]', 'start the alarm by hand'],
+  ['/all-clear', 'turn the alarm off'],
+  ['/clear', "clear the office's chat view"],
+  ['/help', 'this list'],
 ];
 const SHOW_YOU_KEY = 'claudio.showYou';
 const WORKER_COLORS = ['#7fb38a', '#b99bd8', '#e0b25a', '#6fb0c8', '#d98a8a', '#9aa7d8', '#c9a27e'];
@@ -54,44 +54,44 @@ function workerColor(key) {
   for (const ch of String(key)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   return WORKER_COLORS[h % WORKER_COLORS.length];
 }
-const TASK_LABEL = { pending: 'Yapılacak', in_progress: 'Sürüyor', completed: 'Bitti' };
+const TASK_LABEL = { pending: 'To do', in_progress: 'In progress', completed: 'Done' };
 const fmtTokens = (n) => (n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${Math.round(n / 1e3)}k` : String(n));
 const fmtDuration = (ms) => {
   const m = Math.round(ms / 60000);
-  return m < 1 ? '1 dk\'dan az' : m < 60 ? `${m} dk` : `${Math.floor(m / 60)} sa ${m % 60} dk`;
+  return m < 1 ? 'under 1 min' : m < 60 ? `${m} min` : `${Math.floor(m / 60)} h ${m % 60} min`;
 };
 // "Your turn" only makes sense for the main agent; a finished subagent is simply done.
 const stateLabel = (agent) => {
-  if (agent.state === 'done' && agent.kind === 'sub') return 'bitti';
-  if (agent.state === 'done' && agent.kind === 'worker') return 'dinleniyor';
+  if (agent.state === 'done' && agent.kind === 'sub') return 'done';
+  if (agent.state === 'done' && agent.kind === 'worker') return 'resting';
   return STATE_LABEL[agent.state] ?? agent.state;
 };
 const WORKER_CHIPS = [
-  { label: 'Ne yapıyorsun?', text: 'Şu an ne yapıyorsun? İki cümleyle anlat.' },
-  { label: 'Durum özeti', text: 'Şu ana kadar yaptıklarını ve sıradaki adımı üç maddede özetle.' },
-  { label: 'Kendini tanıt', text: 'Kendini kısaca tanıt: ne konuda uzmansın, sana hangi işleri verebilirim?' },
+  { label: 'What are you doing?', text: 'What are you doing right now? Tell me in two sentences.' },
+  { label: 'Status summary', text: 'Summarize what you have done so far and the next step in three bullet points.' },
+  { label: 'Introduce yourself', text: 'Introduce yourself briefly: what are you an expert in, and what work can I give you?' },
 ];
 const MODES = {
-  default: { label: 'Her şeyi sor', color: 'var(--ok)' },
-  acceptEdits: { label: 'Düzenlemeler otomatik', color: 'var(--s-read)' },
-  plan: { label: 'Plan modu', color: 'var(--s-plan)' },
-  auto: { label: 'Otomatik mod', color: 'var(--s-talk)' },
-  dontAsk: { label: 'Sormadan reddet', color: 'var(--muted)' },
-  bypassPermissions: { label: 'İzinler atlanıyor', color: 'var(--warn)' },
+  default: { label: 'Ask for everything', color: 'var(--ok)' },
+  acceptEdits: { label: 'Auto-accept edits', color: 'var(--s-read)' },
+  plan: { label: 'Plan mode', color: 'var(--s-plan)' },
+  auto: { label: 'Auto mode', color: 'var(--s-talk)' },
+  dontAsk: { label: "Deny, don't ask", color: 'var(--muted)' },
+  bypassPermissions: { label: 'Bypassing permissions', color: 'var(--warn)' },
 };
 const ago = (ms) => {
   const m = Math.round((Date.now() - ms) / 60000);
-  return m < 1 ? 'şimdi' : m < 60 ? `${m} dk önce` : `${Math.round(m / 60)} sa önce`;
+  return m < 1 ? 'just now' : m < 60 ? `${m} min ago` : `${Math.round(m / 60)} h ago`;
 };
-const MEETING_TOPICS = ['Durum değerlendirmesi', 'Sıradaki adımlar', 'Engeller ve riskler', 'Mimari karar'];
-const MEETING_PHASE = { running: 'sürüyor', ending: 'özet yazılıyor', done: 'bitti' };
+const MEETING_TOPICS = ['Status review', 'Next steps', 'Blockers and risks', 'Architecture decision'];
+const MEETING_PHASE = { running: 'in progress', ending: 'writing the summary', done: 'over' };
 
 /** Meeting prompts are long; the chat shows them as short lines. */
 function shownText(text) {
   const t = String(text ?? '');
-  if (t.startsWith(session.MEETING_START)) return `Toplantı başladı: ${t.slice(session.MEETING_START.length).split('\n')[0].trim()}`;
+  if (t.startsWith(session.MEETING_START)) return `Meeting started: ${t.slice(session.MEETING_START.length).split('\n')[0].trim()}`;
   if (t.startsWith(session.MEETING_INTERJECT)) return t.slice(session.MEETING_INTERJECT.length).trim();
-  if (t.startsWith(session.MEETING_END)) return 'Toplantıyı bitir ve özetle';
+  if (t.startsWith(session.MEETING_END)) return 'End the meeting and summarize';
   return t;
 }
 const meetingKind = (text) => {
@@ -99,7 +99,7 @@ const meetingKind = (text) => {
   return t.startsWith(session.MEETING_START) || t.startsWith(session.MEETING_END) ? 'sys' : null;
 };
 
-const WAITING_LABEL = { permission: 'izin bekliyor', question: 'soru soruyor', done: 'bitti · sıra sende' };
+const WAITING_LABEL = { permission: 'needs permission', question: 'has a question', done: 'done · your turn' };
 // A finished turn is shown, but only a permission or a question makes the dock blink.
 const urgent = (x) => x.waiting === 'permission' || x.waiting === 'question';
 const sessionName = (x) => x.name || String(x.cwd ?? '').split(/[\\/]/).filter(Boolean).pop() || x.sessionId.slice(0, 8);
@@ -118,7 +118,7 @@ export function createUI(scene) {
   let teamTab = 'office';
   let teamPick = null; // { kind, name } of the row whose task box is open
 
-  // ---------- ajan etiketleri ----------
+  // ---------- agent tags ----------
   const tags = new Map(); // id -> { el, bubbleTimer }
 
   function tagFor(agent) {
@@ -173,7 +173,7 @@ export function createUI(scene) {
     openPanel({ type: 'agent', id });
   });
 
-  // ---------- yan çubuk ve rozet ----------
+  // ---------- dock and badge ----------
   function renderDock() {
     const s = session.state;
     const dot = s.attached ? 'var(--ok)' : !s.hooksInstalled || s.error ? 'var(--warn)' : 'var(--muted)';
@@ -183,7 +183,7 @@ export function createUI(scene) {
     const finished = s.sessions.filter((x) => x.waiting === 'done' && x.sessionId !== s.attached?.sessionId).length;
     condot.style.background = others ? 'var(--s-wait)' : dot;
     condot.classList.toggle('alert', Boolean(others));
-    dock.querySelector('[data-open="session"] .tip').textContent = others ? `Oturum · ${others} oturum seni bekliyor` : finished ? `Oturum · ${finished} oturum bitirdi` : 'Oturum';
+    dock.querySelector('[data-open="session"] .tip').textContent = others ? `Sessions · ${others} waiting for you` : finished ? `Sessions · ${finished} finished` : 'Sessions';
     for (const btn of dock.querySelectorAll('[data-open]')) {
       const k = btn.dataset.open;
       const on = panel && (panel.type === k || (k === 'chat' && panel.type === 'agent' && panel.id === 'main'));
@@ -230,8 +230,8 @@ export function createUI(scene) {
     const level = u.percent >= 90 ? 'hot' : u.percent >= 70 ? 'warm' : '';
     meter.className = `meterbar ${level}`;
     meter.querySelector('.mb i').style.width = `${Math.max(2, u.percent)}%`;
-    meter.querySelector('.mt').textContent = `bağlam %${u.percent}${u.approximate ? '≈' : ''} · ${fmtTokens(u.perMinute)}/dk`;
-    meter.title = `Bağlam: ${fmtTokens(u.context)} / ${fmtTokens(u.window)} token${u.approximate ? ' (pencere tahmini)' : ''}\nSon 5 dakikada dakikada ${fmtTokens(u.perMinute)} token\nModel: ${u.model ?? 'bilinmiyor'}`;
+    meter.querySelector('.mt').textContent = `context ${u.percent}%${u.approximate ? '≈' : ''} · ${fmtTokens(u.perMinute)}/min`;
+    meter.title = `Context: ${fmtTokens(u.context)} / ${fmtTokens(u.window)} tokens${u.approximate ? ' (window estimated)' : ''}\n${fmtTokens(u.perMinute)} tokens per minute over the last 5 minutes\nModel: ${u.model ?? 'unknown'}`;
   }
 
   let alarmTick = 0;
@@ -246,7 +246,7 @@ export function createUI(scene) {
       const m = Math.floor((Date.now() - a.since) / 60_000);
       const sec = Math.floor(((Date.now() - a.since) % 60_000) / 1000);
       alarmPill.querySelector('span').textContent = `Alarm · ${m}:${String(sec).padStart(2, '0')}`;
-      alarmPill.title = `${a.cause}\nKapatmak için tıkla.`;
+      alarmPill.title = `${a.cause}\nClick to turn it off.`;
     };
     draw();
     alarmTick = setInterval(draw, 1000);
@@ -254,11 +254,11 @@ export function createUI(scene) {
 
   function renderBadge() {
     const s = session.state;
-    let label = 'Bağlı değil';
+    let label = 'Not connected';
     let color = 'var(--muted)';
     if (s.attached) {
       const m = MODES[s.mode];
-      label = `${s.attached.name || 'Oturum'}${m ? ` · ${m.label}` : ''}`;
+      label = `${s.attached.name || 'Session'}${m ? ` · ${m.label}` : ''}`;
       color = m?.color ?? 'var(--ok)';
     }
     if (label.length > 46) label = label.slice(0, 45) + '…';
@@ -271,7 +271,7 @@ export function createUI(scene) {
     }
   }
 
-  // ---------- paneller ----------
+  // ---------- panels ----------
   function openPanel(next) {
     const same = panel && next && panel.type === next.type && panel.id === next.id;
     if (!same && next?.type === 'settings') session.requestDiagnostics();
@@ -293,24 +293,24 @@ export function createUI(scene) {
   }
 
   const head = (title, sub, extra = '', avatar = false) =>
-    `<div class="ph">${avatar ? '<div class="av"><i></i></div>' : ''}<div class="t"><h3>${title}</h3><div class="s">${sub}</div></div>${extra}<button class="x" data-close aria-label="Kapat">${ICON.x}</button></div>`;
+    `<div class="ph">${avatar ? '<div class="av"><i></i></div>' : ''}<div class="t"><h3>${title}</h3><div class="s">${sub}</div></div>${extra}<button class="x" data-close aria-label="Close">${ICON.x}</button></div>`;
 
   const composer = (placeholder, disabled) =>
     `<div class="attach-row" id="attachRow" hidden></div>` +
     `<form class="composer" id="msgForm">` +
-    `<button type="button" class="clipbtn" id="clipBtn" aria-label="Dosya ekle" title="Dosya ekle (resim yapıştırmak için Ctrl+V)" ${disabled ? 'disabled' : ''}>${ICON.clip}</button>` +
+    `<button type="button" class="clipbtn" id="clipBtn" aria-label="Attach a file" title="Attach a file (Ctrl+V pastes an image)" ${disabled ? 'disabled' : ''}>${ICON.clip}</button>` +
     `<input type="file" id="fileInput" multiple hidden>` +
     `<input id="msgInput" placeholder="${esc(placeholder)}" autocomplete="off" aria-label="${esc(placeholder)}" ${disabled ? 'disabled' : ''}>` +
-    `<button class="send" type="submit" aria-label="Gönder" ${disabled ? 'disabled' : ''}>${ICON.send}</button></form>`;
+    `<button class="send" type="submit" aria-label="Send" ${disabled ? 'disabled' : ''}>${ICON.send}</button></form>`;
 
-  // Gönderilmeyi bekleyen ekler (panel değişince temizlenir).
+  // Attachments waiting to be sent (cleared when the panel changes).
   let drafts = []; // { file, preview }
 
   function addFiles(list) {
     const room = MAX_FILES - drafts.length;
     const files = [...list].slice(0, Math.max(0, room));
     for (const file of files) {
-      if (file.size > MAX_BYTES) { sayBubble(panel?.id ?? 'main', `${file.name} 15 MB'tan büyük`); continue; }
+      if (file.size > MAX_BYTES) { sayBubble(panel?.id ?? 'main', `${file.name} is larger than 15 MB`); continue; }
       const draft = { file, preview: null };
       drafts.push(draft);
       if (file.type.startsWith('image/')) {
@@ -327,17 +327,17 @@ export function createUI(scene) {
     if (!row) return;
     row.hidden = !drafts.length;
     row.innerHTML = drafts.map((d, i) =>
-      `<span class="att">${d.preview ? `<img src="${d.preview}" alt="">` : '<i class="fileic"></i>'}<span class="an">${esc(d.file.name || 'yapıştırılan resim')}</span><button type="button" data-rm="${i}" aria-label="Kaldır">${ICON.x}</button></span>`).join('');
+      `<span class="att">${d.preview ? `<img src="${d.preview}" alt="">` : '<i class="fileic"></i>'}<span class="an">${esc(d.file.name || 'pasted image')}</span><button type="button" data-rm="${i}" aria-label="Remove">${ICON.x}</button></span>`).join('');
     for (const b of row.querySelectorAll('[data-rm]')) {
       b.addEventListener('click', () => { drafts.splice(Number(b.dataset.rm), 1); renderDrafts(); });
     }
   }
 
-  /** Panodan yapıştırılan resimlere ad verir (pano dosyalarının adı çoğu zaman "image.png"). */
+  /** Names images pasted from the clipboard (clipboard files are usually all called "image.png"). */
   function namedPaste(file) {
     const ext = (file.type.split('/')[1] || 'png').replace('jpeg', 'jpg');
     const stamp = new Date().toISOString().slice(11, 19).replaceAll(':', '');
-    return new File([file], `yapistirilan-${stamp}.${ext}`, { type: file.type });
+    return new File([file], `pasted-${stamp}.${ext}`, { type: file.type });
   }
 
   function renderPanel(animate = false) {
@@ -353,12 +353,12 @@ export function createUI(scene) {
   }
 
   function hooksBlock(s) {
-    if (s.fake) return '<div class="note">Demo modu: hook kurulumu gerekmez.</div>';
+    if (s.fake) return '<div class="note">Demo mode: no hooks to set up.</div>';
     if (s.hooksInstalled) {
-      return '<div class="row"><span class="desc">Claude Code bağlantısı kurulu.</span><button class="btn ghost small" data-act="uninstall">Kaldır</button></div>';
+      return '<div class="row"><span class="desc">Connected to Claude Code.</span><button class="btn ghost small" data-act="uninstall">Remove</button></div>';
     }
-    return `<div class="note warn"><b>Önce bağlantıyı kur.</b> Ofis, <code>~/.claude/settings.json</code> dosyasına kendi hook'larını ekler (önce yedek alır). Bu hook'lar bütün Claude Code oturumlarında çalışır; ofis kapalıyken hiçbir şeyi engellemez.${s.hooksError ? `<br><b>Hata:</b> ${esc(s.hooksError)}` : ''}</div>` +
-      '<button class="btn" data-act="install">Bağlantıyı kur</button>';
+    return `<div class="note warn"><b>Set up the connection first.</b> The office adds its own hooks to <code>~/.claude/settings.json</code> (after making a backup). They run in every Claude Code session and block nothing while the office is closed.${s.hooksError ? `<br><b>Error:</b> ${esc(s.hooksError)}` : ''}</div>` +
+      '<button class="btn" data-act="install">Set up the connection</button>';
   }
 
   function sessionPanel() {
@@ -367,31 +367,31 @@ export function createUI(scene) {
       ? s.sessions.map((x) => {
           const on = s.attached?.sessionId === x.sessionId;
           const busy = x.status === 'busy';
-          return `<button class="sess${on ? ' on' : ''}" data-sid="${esc(x.sessionId)}" style="--c:var(${busy ? '--s-write' : '--ok'})"><i class="dot${busy ? ' pulse' : ''}"></i><span class="grow"><b>${esc(x.name || shortPath(x.cwd) || x.sessionId.slice(0, 8))}</b><span>${esc(shortPath(x.cwd))} · ${busy ? 'çalışıyor' : 'boşta'} · ${ago(x.updatedAt)}</span></span>${on ? '<span class="st" style="--c:var(--ok)"><i class="dot"></i>bağlı</span>' : x.waiting ? `<span class="st${urgent(x) ? ' live' : ''}" style="--c:var(${urgent(x) ? '--s-wait' : '--ok'})"><i class="dot"></i>${WAITING_LABEL[x.waiting] ?? 'bekliyor'}</span>` : ''}</button>`;
+          return `<button class="sess${on ? ' on' : ''}" data-sid="${esc(x.sessionId)}" style="--c:var(${busy ? '--s-write' : '--ok'})"><i class="dot${busy ? ' pulse' : ''}"></i><span class="grow"><b>${esc(x.name || shortPath(x.cwd) || x.sessionId.slice(0, 8))}</b><span>${esc(shortPath(x.cwd))} · ${busy ? 'working' : 'idle'} · ${ago(x.updatedAt)}</span></span>${on ? '<span class="st" style="--c:var(--ok)"><i class="dot"></i>attached</span>' : x.waiting ? `<span class="st${urgent(x) ? ' live' : ''}" style="--c:var(${urgent(x) ? '--s-wait' : '--ok'})"><i class="dot"></i>${WAITING_LABEL[x.waiting] ?? 'waiting'}</span>` : ''}</button>`;
         }).join('')
-      : '<p class="desc">Açık Claude Code oturumu bulunamadı. Bir terminalde <code>claude</code> başlatınca burada görünür.</p>';
-    const sub = s.attached ? `Bağlı: ${esc(s.attached.name || shortPath(s.attached.cwd))}` : 'Bağlanmak için bir oturum seç';
-    return head('Claude Code oturumları', sub) +
-      `<div class="pbody">${hooksBlock(s)}<span class="lbl">Açık oturumlar</span><div class="sesslist">${list}</div>` +
-      (s.attached ? '<button class="btn ghost" data-act="detach">Bağlantıyı kes</button>' : '') +
+      : '<p class="desc">No running Claude Code session found. Start <code>claude</code> in a terminal and it shows up here.</p>';
+    const sub = s.attached ? `Attached: ${esc(s.attached.name || shortPath(s.attached.cwd))}` : 'Pick a session to attach to';
+    return head('Claude Code sessions', sub) +
+      `<div class="pbody">${hooksBlock(s)}<span class="lbl">Running sessions</span><div class="sesslist">${list}</div>` +
+      (s.attached ? '<button class="btn ghost" data-act="detach">Detach</button>' : '') +
       (s.error ? `<p class="desc warn">${esc(s.error)}</p>` : '') + '</div>';
   }
 
   function settingsPanel() {
     const s = session.state;
     const m = MODES[s.mode];
-    return head('Ayarlar', s.attached ? esc(s.attached.name || 'Bağlı oturum') : 'Bağlı oturum yok') +
+    return head('Settings', s.attached ? esc(s.attached.name || 'Attached session') : 'No session attached') +
       `<div class="pbody">` +
-      `<div class="row"><div><b>İzinleri ve soruları ofisten cevapla</b><p class="desc">Açıkken izin istekleri ve AskUserQuestion önce burada görünür. Kapalıyken terminalde cevaplanır.</p></div><button class="sw" role="switch" id="answerSw" aria-checked="${s.answerInOffice}" aria-label="Ofisten cevapla"></button></div>` +
-      `<div class="row"><div><b>Ajanlar bana soru sorsun</b><p class="desc">Kapalıyken Claude soru sormak yerine makul olanı seçip nedenini yazar; ofis bunu bildirir.</p></div><button class="sw" role="switch" id="askSw" aria-checked="${s.askQuestions}" aria-label="Ajanlar soru sorsun"></button></div>` +
-      `<div class="collapse${s.askQuestions ? '' : ' closed'}" id="askMore"><div><div class="row"><div><b>Her yeni görevde sor</b><p class="desc">Ofisten verdiğin her işten önce Claude kısa bir çoktan seçmeli soru sorar.</p></div><button class="sw" role="switch" id="askEverySw" aria-checked="${s.askEveryTask}" aria-label="Her yeni görevde sor"></button></div></div></div>` +
-      `<div class="kv"><span>Oturumun izin modu</span><b>${esc(m?.label ?? s.mode ?? 'bilinmiyor')}</b></div>` +
-      `<p class="desc">İzin modunu terminalde Shift+Tab ile değiştirebilirsin. Bir izin kartında "düzenlemeleri otomatik onayla" seçersen oturum o moda geçer.</p>` +
-      `<div class="row"><div><b>Windows bildirimleri</b><p class="desc">İzin ve soru geldiğinde, uzun bir tur bittiğinde.</p></div><button class="sw" role="switch" id="notifySw" aria-checked="${alerts.notify}" aria-label="Windows bildirimleri"></button></div>` +
-      `<div class="row"><div><b>Windows ile başlat</b><p class="desc">Oturum açınca ofis kendiliğinden açılır.</p></div><button class="sw" role="switch" id="autoSw" aria-checked="${autostart === true}" aria-label="Windows ile başlat" ${autostart === null ? 'disabled' : ''}></button></div>` +
+      `<div class="row"><div><b>Answer permissions and questions in the office</b><p class="desc">When on, permission requests and AskUserQuestion show up here first. When off, they are answered in the terminal.</p></div><button class="sw" role="switch" id="answerSw" aria-checked="${s.answerInOffice}" aria-label="Answer in the office"></button></div>` +
+      `<div class="row"><div><b>Let agents ask me questions</b><p class="desc">When off, Claude picks the sensible option instead of asking and writes down why; the office tells you.</p></div><button class="sw" role="switch" id="askSw" aria-checked="${s.askQuestions}" aria-label="Let agents ask questions"></button></div>` +
+      `<div class="collapse${s.askQuestions ? '' : ' closed'}" id="askMore"><div><div class="row"><div><b>Ask before every new task</b><p class="desc">Before each job you give from the office, Claude asks a short multiple-choice question.</p></div><button class="sw" role="switch" id="askEverySw" aria-checked="${s.askEveryTask}" aria-label="Ask before every new task"></button></div></div></div>` +
+      `<div class="kv"><span>Session permission mode</span><b>${esc(m?.label ?? s.mode ?? 'unknown')}</b></div>` +
+      `<p class="desc">Change the permission mode in the terminal with Shift+Tab. Picking "auto-accept edits" on a permission card switches the session to that mode.</p>` +
+      `<div class="row"><div><b>Windows notifications</b><p class="desc">For permission requests, questions and long turns that finish.</p></div><button class="sw" role="switch" id="notifySw" aria-checked="${alerts.notify}" aria-label="Windows notifications"></button></div>` +
+      `<div class="row"><div><b>Start with Windows</b><p class="desc">The office opens on its own when you sign in.</p></div><button class="sw" role="switch" id="autoSw" aria-checked="${autostart === true}" aria-label="Start with Windows" ${autostart === null ? 'disabled' : ''}></button></div>` +
       diagnosticsBlock() +
-      `<div class="row"><div><b>Beni ofiste göster</b><p class="desc">Ofisten yazdığın her mesajı "Sen" karakteri alıcının masasına götürür.</p></div><button class="sw" role="switch" id="youSw" aria-checked="${showYou}" aria-label="Beni ofiste göster"></button></div>` +
-      `<div class="row"><div><b>Ses</b><p class="desc">Aynı anlarda kısa bir zil sesi.</p></div><button class="sw" role="switch" id="soundSw" aria-checked="${alerts.sound}" aria-label="Ses"></button></div>` +
+      `<div class="row"><div><b>Show me in the office</b><p class="desc">The "You" character carries every message you send to the recipient's desk.</p></div><button class="sw" role="switch" id="youSw" aria-checked="${showYou}" aria-label="Show me in the office"></button></div>` +
+      `<div class="row"><div><b>Sound</b><p class="desc">A short chime at the same moments.</p></div><button class="sw" role="switch" id="soundSw" aria-checked="${alerts.sound}" aria-label="Sound"></button></div>` +
       `</div>`;
   }
 
@@ -404,7 +404,7 @@ export function createUI(scene) {
     const want = showYou && Boolean(session.state.attached);
     if (want && !tags.has('you')) {
       scene.addYou();
-      const tag = tagFor({ id: 'you', label: 'Sen', state: 'done' });
+      const tag = tagFor({ id: 'you', label: 'You', state: 'done' });
       tag.el.classList.add('you');
     } else if (!want && tags.has('you')) {
       scene.removeYou();
@@ -419,36 +419,36 @@ export function createUI(scene) {
     if (!m) return false;
     const [, name, arg] = m;
     const s = session.state;
-    const cmd = name.toLocaleLowerCase('tr');
-    if (cmd === 'yardım' || cmd === 'yardim' || cmd === 'help') {
-      session.systemNote(`Ofis komutları:\n${SLASH_HELP.map(([c, d]) => `${c} · ${d}`).join('\n')}\nDiğer eğik çizgili mesajlar Claude'a düz metin olarak gider.`);
-    } else if (cmd === 'durum' || cmd === 'status') {
+    const cmd = name.toLowerCase();
+    if (cmd === 'help') {
+      session.systemNote(`Office commands:\n${SLASH_HELP.map(([c, d]) => `${c} · ${d}`).join('\n')}\nOther messages that start with a slash go to Claude as plain text.`);
+    } else if (cmd === 'status') {
       const subs = [...s.agents.values()].filter((a) => a.kind === 'sub');
       const done = s.tasks.filter((t) => t.status === 'completed').length;
       const main = s.agents.get('main');
       session.systemNote([
-        `Claude ${main ? stateLabel(main) : 'yok'}${s.busy ? ' · tur sürüyor' : ''}`,
-        `${subs.length} alt ajan${subs.length ? `: ${subs.map((a) => a.label).join(', ')}` : ''}`,
-        s.tasks.length ? `görevler: ${done} / ${s.tasks.length} bitti` : 'görev listesi boş',
-        s.usage ? `bağlam %${s.usage.percent} · ${fmtTokens(s.usage.perMinute)} token/dk` : null,
-        s.requests.length ? `${s.requests.length} istek seni bekliyor` : null,
-        s.alarm ? `alarm açık: ${s.alarm.cause}` : null,
+        `Claude ${main ? stateLabel(main) : 'not here'}${s.busy ? ' · turn in progress' : ''}`,
+        `${subs.length} subagent${subs.length === 1 ? '' : 's'}${subs.length ? `: ${subs.map((a) => a.label).join(', ')}` : ''}`,
+        s.tasks.length ? `tasks: ${done} / ${s.tasks.length} done` : 'the task list is empty',
+        s.usage ? `context ${s.usage.percent}% · ${fmtTokens(s.usage.perMinute)} tokens/min` : null,
+        s.requests.length ? `${s.requests.length} request${s.requests.length === 1 ? '' : 's'} waiting for you` : null,
+        s.alarm ? `alarm on: ${s.alarm.cause}` : null,
       ].filter(Boolean).join('\n'));
-    } else if (cmd === 'ajanlar' || cmd === 'agents') {
+    } else if (cmd === 'agents') {
       const list = [...s.agents.values()].map((a) => `${a.label} · ${stateLabel(a)}${a.text ? ` · ${a.text}` : ''}`);
-      session.systemNote(list.length ? list.join('\n') : 'Ofiste kimse yok.');
-    } else if (cmd === 'görevler' || cmd === 'gorevler' || cmd === 'tasks') {
+      session.systemNote(list.length ? list.join('\n') : 'Nobody is in the office.');
+    } else if (cmd === 'tasks') {
       teamTab = 'tasks';
       openPanel({ type: 'team' });
-    } else if (cmd === 'toplantı' || cmd === 'toplanti' || cmd === 'meeting') {
+    } else if (cmd === 'meeting') {
       meetDraft = { topic: arg.trim(), picked: null };
       openPanel({ type: 'meeting' });
     } else if (cmd === 'alarm') {
       session.startManualAlarm(arg.trim());
-    } else if (cmd === 'alarm-bitti' || cmd === 'all-clear') {
+    } else if (cmd === 'all-clear') {
       if (s.alarm) session.endAlarm();
-      else session.systemNote('Açık bir alarm yok.');
-    } else if (cmd === 'temizle' || cmd === 'clear') {
+      else session.systemNote('There is no alarm on.');
+    } else if (cmd === 'clear') {
       session.clearChatView();
     } else {
       return false;
@@ -456,22 +456,22 @@ export function createUI(scene) {
     return true;
   }
 
-  /** Settings → Tanılama: each link of the chain from Claude Code to the office. */
+  /** Settings → Diagnostics: each link of the chain from Claude Code to the office. */
   function diagnosticsBlock() {
     const d = session.state.diagnostics;
-    if (!d) return '<span class="lbl">Tanılama</span><p class="desc">Denetleniyor…</p>';
+    if (!d) return '<span class="lbl">Diagnostics</span><p class="desc">Checking…</p>';
     const since = d.lastHookAt ? Math.round((Date.now() - d.lastHookAt) / 1000) : null;
     const row = (state, label, value) => `<div class="diag ${state}"><i></i><span>${label}</span><b>${value}</b></div>`;
-    const hooks = !d.hooksInstalled ? row('bad', 'Claude Code bağlantısı', 'kurulu değil')
-      : !d.hooksCurrent ? row('warn', 'Claude Code bağlantısı', 'eski, yenilenmeli') : row('ok', 'Claude Code bağlantısı', 'kurulu');
-    const seen = d.hooksSeen ? row(since !== null && since < 600 ? 'ok' : 'warn', 'Son hook', `${since < 60 ? `${since} sn` : `${Math.round(since / 60)} dk`} önce · ${esc(d.lastHookEvent ?? '')}`)
-      : row(d.hooksInstalled ? 'warn' : 'bad', 'Son hook', 'henüz gelmedi · Claude bir araç kullanınca gelir');
-    const fix = !d.hooksInstalled || !d.hooksCurrent ? '<button class="btn ghost small" data-act="install">Bağlantıyı onar</button>' : '';
-    return '<span class="lbl">Tanılama</span><div class="diags">' +
-      row(d.nodeOk ? 'ok' : 'bad', 'Node.js', esc(d.node) + (d.nodeOk ? '' : ' · 20 veya üstü gerekli')) +
+    const hooks = !d.hooksInstalled ? row('bad', 'Claude Code hooks', 'not installed')
+      : !d.hooksCurrent ? row('warn', 'Claude Code hooks', 'outdated, need a refresh') : row('ok', 'Claude Code hooks', 'installed');
+    const seen = d.hooksSeen ? row(since !== null && since < 600 ? 'ok' : 'warn', 'Last hook', `${since < 60 ? `${since} s` : `${Math.round(since / 60)} min`} ago · ${esc(d.lastHookEvent ?? '')}`)
+      : row(d.hooksInstalled ? 'warn' : 'bad', 'Last hook', 'none yet · arrives when Claude uses a tool');
+    const fix = !d.hooksInstalled || !d.hooksCurrent ? '<button class="btn ghost small" data-act="install">Repair the connection</button>' : '';
+    return '<span class="lbl">Diagnostics</span><div class="diags">' +
+      row(d.nodeOk ? 'ok' : 'bad', 'Node.js', esc(d.node) + (d.nodeOk ? '' : ' · 20 or newer required')) +
       hooks + seen +
-      row(d.sessions ? 'ok' : 'warn', 'Açık oturum', d.sessions ? String(d.sessions) : 'yok · terminalde claude başlat') +
-      row('ok', 'Köprü', `${d.version ? `v${esc(d.version)} · ` : ''}port ${d.port}`) +
+      row(d.sessions ? 'ok' : 'warn', 'Running sessions', d.sessions ? String(d.sessions) : 'none · start claude in a terminal') +
+      row('ok', 'Bridge', `${d.version ? `v${esc(d.version)} · ` : ''}port ${d.port}`) +
       `</div>${fix}`;
   }
   // null until the shell answers (and in the browser preview, where there is no shell).
@@ -483,22 +483,22 @@ export function createUI(scene) {
     const agent = s.agents.get(panel.id);
     const isMain = panel.id === 'main';
     const isWorker = agent.kind === 'worker';
-    const sub = isMain ? esc(s.attached?.name || 'Ana ajan') : esc(agent.description || agent.type);
+    const sub = isMain ? esc(s.attached?.name || 'Main agent') : esc(agent.description || agent.type);
     const st = `<span class="st live" style="--c:var(--s-${agent.state})" id="agentState"><i class="dot"></i><span>${stateLabel(agent)}</span></span>`;
     // Office agents can be stopped mid-task or sent home.
     const tools = isWorker
-      ? `<div class="wtools"><button type="button" class="btn ghost small" data-wact="stop" ${agent.resting ? 'hidden' : ''}>Durdur</button><button type="button" class="btn ghost small" data-wact="remove">Ofisten çıkar</button></div>`
+      ? `<div class="wtools"><button type="button" class="btn ghost small" data-wact="stop" ${agent.resting ? 'hidden' : ''}>Stop</button><button type="button" class="btn ghost small" data-wact="remove">Send home</button></div>`
       : '';
-    const tabs = `<div class="tabs-row"><div class="seg" id="agentTabs"><span class="ind"></span><button type="button" data-v="chat" aria-pressed="${agentTab === 'chat'}">Sohbet</button><button type="button" data-v="steps" aria-pressed="${agentTab === 'steps'}">Adımlar <span class="cnt">${agent.steps.length || ''}</span></button></div></div>`;
+    const tabs = `<div class="tabs-row"><div class="seg" id="agentTabs"><span class="ind"></span><button type="button" data-v="chat" aria-pressed="${agentTab === 'chat'}">Chat</button><button type="button" data-v="steps" aria-pressed="${agentTab === 'steps'}">Steps <span class="cnt">${agent.steps.length || ''}</span></button></div></div>`;
     const body = agentTab === 'chat' ? '<div class="thread" id="thread"></div>' : '<div class="steps" id="steps"></div>';
-    const placeholder = isMain ? "Claude'a yaz…" : isWorker ? `${agent.label}'a görev ver…` : `${agent.label}'a yaz (bir sonraki adımında görür)…`;
+    const placeholder = isMain ? 'Write to Claude…' : isWorker ? `Give ${agent.label} a task…` : `Write to ${agent.label} (sees it at its next step)…`;
     const enabled = isWorker || s.attached;
     const chips = (isMain ? MAIN_CHIPS : isWorker ? WORKER_CHIPS : SUB_CHIPS).map((c, i) => `<button type="button" class="chip" data-chip="${i}" ${enabled ? '' : 'disabled'}>${esc(c.label)}</button>`).join('');
     return head(esc(agent.label), sub, st, true) + tools + tabs + `<div class="pbody scroll" id="pbody">${body}</div>` +
       `<div class="chips-row" id="chips">${chips}</div>` + composer(placeholder, !enabled);
   }
 
-  // ---------- toplantı ----------
+  // ---------- meeting ----------
   let meetDraft = { topic: '', picked: null }; // picked: Set of office agent ids, null = everyone
 
   const officeAgents = () => [...session.state.agents.values()].filter((a) => a.kind === 'worker');
@@ -511,33 +511,33 @@ export function createUI(scene) {
     let note;
     if (workers.length) {
       people = workers.map((a) => `<label class="who${picked.has(a.id) ? ' on' : ''}"><input type="checkbox" data-who="${esc(a.id)}" ${picked.has(a.id) ? 'checked' : ''}><span class="mini-av" style="${avatarStyle(a)}"></span><b>${esc(a.label)}</b><span>${esc(stateLabel(a))}</span></label>`).join('');
-      note = 'Ofis ajanları sırayla konuşur; çalışan ajan işine ara verir ve toplantıdan sonra kaldığı yerden devam eder. Her biri kendi bağlamını korur.';
+      note = 'Office agents speak in turn; a working agent pauses and picks its work up again after the meeting. Each one keeps its own context.';
     } else {
-      people = '<label class="who on"><input type="checkbox" checked disabled><span class="mini-av"></span><b>Claude</b><span>bağlı oturum</span></label>';
-      note = 'Ofiste ajan yok; toplantıyı bağlı oturumdaki Claude yürütür. Ekip panelinden ajan eklersen onlarla toplantı yapabilirsin.';
+      people = '<label class="who on"><input type="checkbox" checked disabled><span class="mini-av"></span><b>Claude</b><span>attached session</span></label>';
+      note = 'There are no agents in the office, so Claude in the attached session runs the meeting. Add agents from the team panel to meet with them.';
     }
     const ready = workers.length ? picked.size > 0 : Boolean(s.attached);
     const can = ready && meetDraft.topic.trim();
-    return head('Toplantı ayarla', ready ? 'Konuyu yaz, kimlerin katılacağını seç' : 'Önce bir oturuma bağlan ya da ofise ajan ekle') +
-      `<form class="meetform" id="meetSetup"><div class="pbody"><span class="lbl">Konu</span>` +
-      `<textarea class="field" id="meetTopic" rows="2" placeholder="Toplantının konusu ne?" ${ready ? '' : 'disabled'}>${esc(meetDraft.topic)}</textarea>` +
+    return head('Set up a meeting', ready ? 'Write the topic and pick who joins' : 'Attach to a session or add agents to the office first') +
+      `<form class="meetform" id="meetSetup"><div class="pbody"><span class="lbl">Topic</span>` +
+      `<textarea class="field" id="meetTopic" rows="2" placeholder="What is the meeting about?" ${ready ? '' : 'disabled'}>${esc(meetDraft.topic)}</textarea>` +
       `<div class="chips-wrap">${MEETING_TOPICS.map((t, i) => `<button type="button" class="chip" data-topic="${i}" ${ready ? '' : 'disabled'}>${esc(t)}</button>`).join('')}</div>` +
-      `<span class="lbl">Katılımcılar</span><div class="people">${people}</div><p class="desc">${note}</p>` +
-      `</div><div class="meet-actions"><button class="btn small" type="submit" id="meetStart" ${can ? '' : 'disabled'}>Toplantıyı başlat</button></div></form>`;
+      `<span class="lbl">Participants</span><div class="people">${people}</div><p class="desc">${note}</p>` +
+      `</div><div class="meet-actions"><button class="btn small" type="submit" id="meetStart" ${can ? '' : 'disabled'}>Start the meeting</button></div></form>`;
   }
 
   function meetingPanel() {
     const m = session.state.meeting;
     const phase = MEETING_PHASE[m.phase] ?? m.phase;
     const st = `<span class="st${m.phase === 'done' ? '' : ' live'}" style="--c:var(${m.phase === 'done' ? '--ok' : '--s-talk'})"><i class="dot"></i><span>${phase}</span></span>`;
-    const names = m.participants.map((id) => session.state.agents.get(id)?.label ?? (id === 'main' ? 'Claude' : 'ajan')).join(', ');
+    const names = m.participants.map((id) => session.state.agents.get(id)?.label ?? (id === 'main' ? 'Claude' : 'agent')).join(', ');
     const summary = m.phase === 'done'
-      ? `<div class="summary"><span class="lbl">Toplantı özeti</span><div class="sumtext">${esc(m.summary)}</div></div>` : '';
+      ? `<div class="summary"><span class="lbl">Meeting summary</span><div class="sumtext">${esc(m.summary)}</div></div>` : '';
     const actions = m.phase === 'done'
-      ? '<div class="meet-actions"><button class="btn ghost small" data-meet="copy">Özeti kopyala</button><button class="btn small" data-meet="close">Özeti kapat</button></div>'
-      : `<div class="meet-actions"><button class="btn ghost small" data-meet="end" ${m.phase === 'ending' ? 'disabled' : ''}>${m.phase === 'ending' ? 'Özet bekleniyor…' : 'Toplantıyı bitir'}</button></div>`;
+      ? '<div class="meet-actions"><button class="btn ghost small" data-meet="copy">Copy the summary</button><button class="btn small" data-meet="close">Close the summary</button></div>'
+      : `<div class="meet-actions"><button class="btn ghost small" data-meet="end" ${m.phase === 'ending' ? 'disabled' : ''}>${m.phase === 'ending' ? 'Waiting for the summary…' : 'End the meeting'}</button></div>`;
     const form = m.phase === 'done' ? '' :
-      `<form class="composer" id="meetForm"><input id="meetInput" placeholder="Araya gir…" autocomplete="off" aria-label="Araya gir"><button class="send" type="submit" aria-label="Gönder">${ICON.send}</button></form>`;
+      `<form class="composer" id="meetForm"><input id="meetInput" placeholder="Jump in…" autocomplete="off" aria-label="Jump in"><button class="send" type="submit" aria-label="Send">${ICON.send}</button></form>`;
     return head(esc(m.topic), esc(names), st) +
       `<div class="pbody scroll" id="pbody"><div class="thread" id="meetThread"></div>${summary}</div>` + actions + form;
   }
@@ -547,17 +547,17 @@ export function createUI(scene) {
     const m = session.state.meeting;
     if (!el || !m) return;
     if (m.mode === 'workers') {
-      const who = (id) => session.state.agents.get(id)?.label ?? 'ajan';
+      const who = (id) => session.state.agents.get(id)?.label ?? 'agent';
       const speaking = m.speaking && m.phase !== 'done'
-        ? `<div class="typing"><i></i><i></i><i></i><span>${esc(who(m.speaking))} konuşuyor</span></div>` : '';
-      el.innerHTML = (m.lines.length ? '' : `<div class="m sys">Toplantı başladı: ${esc(m.topic)}</div>`) + m.lines.map((l) => (l.speaker === 'user'
+        ? `<div class="typing"><i></i><i></i><i></i><span>${esc(who(m.speaking))} is speaking</span></div>` : '';
+      el.innerHTML = (m.lines.length ? '' : `<div class="m sys">Meeting started: ${esc(m.topic)}</div>`) + m.lines.map((l) => (l.speaker === 'user'
         ? `<div class="m me">${esc(l.text)}</div>`
         : `<div class="m ag"><span class="tl spk">${esc(who(l.speaker))}</span>${esc(l.text)}</div>`)).join('') + speaking;
     } else {
       const items = session.state.chat.slice(m.startChat);
       const main = session.state.agents.get('main');
       const typing = m.phase !== 'done' && main && BUSY_STATES.has(main.state)
-        ? `<div class="typing"><i></i><i></i><i></i><span>${esc(main.text || 'Claude düşünüyor')}</span></div>` : '';
+        ? `<div class="typing"><i></i><i></i><i></i><span>${esc(main.text || 'Claude is thinking')}</span></div>` : '';
       el.innerHTML = items.map((x) => {
         const kind = x.role === 'user' ? meetingKind(x.text) ?? 'me' : x.role === 'system' ? 'sys' : x.role === 'task' ? 'task' : 'ag';
         // The summary itself is shown below the thread.
@@ -608,7 +608,7 @@ export function createUI(scene) {
         if (act === 'copy') {
           const m = session.state.meeting;
           navigator.clipboard?.writeText(`${m?.topic}\n\n${m?.summary}`);
-          btn.textContent = 'Kopyalandı';
+          btn.textContent = 'Copied';
         }
       });
     }
@@ -647,19 +647,19 @@ export function createUI(scene) {
     const agent = session.state.agents.get(panel.id);
     const items = panel.id === 'main' ? session.state.chat : agent?.chat ?? [];
     const typing = agent && BUSY_STATES.has(agent.state) && (session.state.attached || agent.kind === 'worker')
-      ? `<div class="typing" aria-label="${esc(agent.label)} çalışıyor"><i></i><i></i><i></i><span>${esc(agent.text || 'çalışıyor')}</span></div>` : '';
+      ? `<div class="typing" aria-label="${esc(agent.label)} is working"><i></i><i></i><i></i><span>${esc(agent.text || 'working')}</span></div>` : '';
     el.innerHTML = (items.length
       ? items.map((m) => {
           const cls = m.role === 'user' ? 'me' : m.role === 'system' ? 'sys' : m.role === 'task' ? 'task' : 'ag';
           const status = m.role === 'user' && (m.pending || m.via)
-            ? `<span class="dl">${m.pending ? esc(m.hint || 'iletilmeyi bekliyor…') : `iletildi · ${esc(m.via)}`}</span>` : '';
-          const label = m.role === 'task' ? '<span class="tl">Claude\'dan görev</span>' : '';
+            ? `<span class="dl">${m.pending ? esc(m.hint || 'waiting to be delivered…') : `delivered · ${esc(m.via)}`}</span>` : '';
+          const label = m.role === 'task' ? '<span class="tl">Task from Claude</span>' : '';
           const files = m.files?.length
             ? `<span class="mfiles">${m.files.map((f) => (f.preview ? `<img src="${f.preview}" alt="${esc(f.name)}" title="${esc(f.name)}">` : `<span class="mfile">${esc(f.name)}</span>`)).join('')}</span>`
             : '';
           return `<div class="m ${cls}${m.pending ? ' pending' : ''}">${label}${files}${esc(shownText(m.text))}${status}</div>`;
         }).join('')
-      : `<div class="m sys">${panel.id === 'main' ? 'Henüz mesaj yok.' : agent?.kind === 'worker' ? 'Bu ajana henüz görev vermedin. Aşağıya yaz ya da bir hızlı komut seç.' : 'Bu ajanın kaydı henüz gelmedi.'}</div>`) + typing;
+      : `<div class="m sys">${panel.id === 'main' ? 'No messages yet.' : agent?.kind === 'worker' ? 'You have not given this agent a task yet. Write below or pick a quick command.' : 'This agent\'s transcript has not arrived yet.'}</div>`) + typing;
     const body = $('pbody');
     if (body) body.scrollTop = body.scrollHeight;
   }
@@ -670,16 +670,16 @@ export function createUI(scene) {
     if (!tools.length && !agent.model) return '';
     const chips = tools.slice(0, 6).map(([name, n]) => `<span class="tc">${esc(name)} <b>${n}</b></span>`).join('');
     const facts = [
-      agent.failures ? `<span class="fail">${agent.failures} başarısız</span>` : '',
+      agent.failures ? `<span class="fail">${agent.failures} failed</span>` : '',
       agent.kind === 'sub' ? `<span>${fmtDuration((agent.endedAt ?? Date.now()) - agent.startedAt)}</span>` : '',
       agent.model ? `<span>${esc(String(agent.model).replace(/^claude-/, ''))}</span>` : '',
-      agent.tokens ? `<span>${fmtTokens(agent.tokens)} token</span>` : '',
+      agent.tokens ? `<span>${fmtTokens(agent.tokens)} tokens</span>` : '',
       agent.costUsd ? `<span>$${agent.costUsd.toFixed(3)}</span>` : '',
     ].filter(Boolean).join('<i>·</i>');
     return `<div class="stats"><div class="tcs">${chips}</div>${facts ? `<div class="facts">${facts}</div>` : ''}</div>`;
   }
 
-  // ---------- ekip ve görevler ----------
+  // ---------- team and tasks ----------
   let libQuery = '';
   let libOpen = new Set(['builtin', 'project']); // expanded library sources
   let confirmRemove = null;
@@ -693,74 +693,74 @@ export function createUI(scene) {
     const libCount = (s.library?.sources ?? []).reduce((n, src) => n + src.agents.length, 0);
     const counts = { office: `${workers.length}/${s.workers.max}`, library: libCount || '', skills: (r?.skills.length ?? 0) + (r?.commands.length ?? 0) || '', tasks: s.tasks.length || '' };
     const seg = `<div class="tabs-row"><div class="seg" id="teamTabs"><span class="ind"></span>` +
-      [['office', 'Ofis'], ['library', 'Kütüphane'], ['skills', 'Beceriler'], ['tasks', 'Görevler']].map(([v, l]) =>
+      [['office', 'Office'], ['library', 'Library'], ['skills', 'Skills'], ['tasks', 'Tasks']].map(([v, l]) =>
         `<button type="button" data-v="${v}" aria-pressed="${teamTab === v}">${l} <span class="cnt">${counts[v]}</span></button>`).join('') + '</div></div>';
-    const sub = s.attached ? esc(shortPath(r?.cwd || s.attached.cwd) || 'Bağlı oturum') : 'Bağlı oturum yok';
+    const sub = s.attached ? esc(shortPath(r?.cwd || s.attached.cwd) || 'Attached session') : 'No session attached';
     let body = '';
     if (teamTab === 'office') body = officeList(workers);
     else if (teamTab === 'library') body = libraryList();
-    else if (!s.attached) body = '<p class="desc">Ofisi bir Claude Code oturumuna bağlayınca o projenin becerileri ve görev listesi burada görünür.</p>';
+    else if (!s.attached) body = '<p class="desc">Attach the office to a Claude Code session to see that project\'s skills and task list here.</p>';
     else if (teamTab === 'tasks') body = tasksList(s.tasks);
-    else if (!r) body = '<p class="desc">Liste okunuyor…</p>';
-    else body = rosterList('skill', r.skills, 'Beceriler') + rosterList('command', r.commands, 'Komutlar');
-    return head('Ekip ve görevler', sub) + seg + `<div class="pbody scroll" id="teamBody">${body}</div>`;
+    else if (!r) body = '<p class="desc">Reading the list…</p>';
+    else body = rosterList('skill', r.skills, 'Skills') + rosterList('command', r.commands, 'Commands');
+    return head('Team and tasks', sub) + seg + `<div class="pbody scroll" id="teamBody">${body}</div>`;
   }
 
   function officeList(workers) {
     const s = session.state;
-    if (!s.workers.available) return '<div class="note warn"><b>Claude Code bulunamadı.</b> Ofis ajanları, bilgisayarındaki <code>claude</code> komutuyla çalışır. Claude Code\'u kurup ofisi yeniden aç.</div>';
-    const head = `<div class="row"><span class="desc">Ofiste ${workers.length} / ${s.workers.max} ajan. Her biri kendi Claude Code oturumunda çalışır ve bağlamını korur.</span></div>`;
+    if (!s.workers.available) return '<div class="note warn"><b>Claude Code not found.</b> Office agents run through the <code>claude</code> command on your computer. Install Claude Code and reopen the office.</div>';
+    const head = `<div class="row"><span class="desc">${workers.length} / ${s.workers.max} agents in the office. Each one runs in its own Claude Code session and keeps its context.</span></div>`;
     if (!workers.length) {
-      return head + '<p class="desc">Henüz ajan yok.</p><button class="btn" type="button" data-goto="library">Kütüphaneden ajan ekle</button>';
+      return head + '<p class="desc">No agents yet.</p><button class="btn" type="button" data-goto="library">Add an agent from the library</button>';
     }
     const rows = workers.map((a) => {
       const sure = confirmRemove === a.id;
       return `<div class="wrow" data-wid="${esc(a.id)}"><button type="button" class="ros-h" data-open-agent><span class="mini-av" style="${avatarStyle(a)}"></span>` +
         `<span class="grow"><b>${esc(a.label)}</b><span>${esc(a.text || a.description || '')}</span></span>` +
-        `<span class="st${a.resting ? '' : ' live'}" style="--c:var(--s-${a.state})"><i class="dot"></i>${esc(stateLabel(a))}${a.queued ? ` · ${a.queued} mesaj` : ''}</span></button>` +
-        `<button type="button" class="wx${sure ? ' sure' : ''}" data-remove title="Ofisten çıkar">${sure ? 'Çıkar?' : ICON.x}</button></div>`;
+        `<span class="st${a.resting ? '' : ' live'}" style="--c:var(--s-${a.state})"><i class="dot"></i>${esc(stateLabel(a))}${a.queued ? ` · ${a.queued} message${a.queued === 1 ? '' : 's'}` : ''}</span></button>` +
+        `<button type="button" class="wx${sure ? ' sure' : ''}" data-remove title="Send home">${sure ? 'Send home?' : ICON.x}</button></div>`;
     }).join('');
     const full = workers.length >= s.workers.max;
     return head + `<div class="roster">${rows}</div>` + (full
-      ? '<p class="desc">Ofis dolu. Yeni bir ajan için önce birini çıkar.</p>'
-      : '<button class="btn ghost small" type="button" data-goto="library">+ Ajan ekle</button>');
+      ? '<p class="desc">The office is full. Send someone home to make room for a new agent.</p>'
+      : '<button class="btn ghost small" type="button" data-goto="library">+ Add an agent</button>');
   }
 
   function libraryList() {
     const s = session.state;
     const lib = s.library;
-    if (!lib) return '<p class="desc">Kütüphane okunuyor…</p>';
+    if (!lib) return '<p class="desc">Reading the library…</p>';
     const full = officeAgents().length >= s.workers.max;
-    const q = libQuery.trim().toLocaleLowerCase('tr');
+    const q = libQuery.trim().toLowerCase();
     const inOffice = new Map();
     for (const a of officeAgents()) inOffice.set(a.type, (inOffice.get(a.type) ?? 0) + 1);
     const recommended = lib.recommended.filter((r) => !r.imported).map((r) =>
       `<div class="rec"><div><b>${esc(r.label)}</b><p class="desc">${esc(r.note)}</p></div>` +
-      `<button class="btn small" type="button" data-import="${esc(r.url)}" ${s.libraryBusy ? 'disabled' : ''}>${s.libraryBusy === r.url ? 'İndiriliyor…' : 'İçe aktar'}</button></div>`).join('');
-    const importForm = `<form class="ros-task libimport" id="libImport"><input placeholder="GitHub reposu: https://github.com/sahip/repo" autocomplete="off" aria-label="GitHub reposu" ${s.libraryBusy ? 'disabled' : ''}><button class="btn small" type="submit" ${s.libraryBusy ? 'disabled' : ''}>${s.libraryBusy && !lib.recommended.some((r) => r.url === s.libraryBusy) ? 'İndiriliyor…' : 'Ekle'}</button></form>` +
+      `<button class="btn small" type="button" data-import="${esc(r.url)}" ${s.libraryBusy ? 'disabled' : ''}>${s.libraryBusy === r.url ? 'Downloading…' : 'Import'}</button></div>`).join('');
+    const importForm = `<form class="ros-task libimport" id="libImport"><input placeholder="GitHub repository: https://github.com/owner/repo" autocomplete="off" aria-label="GitHub repository" ${s.libraryBusy ? 'disabled' : ''}><button class="btn small" type="submit" ${s.libraryBusy ? 'disabled' : ''}>${s.libraryBusy && !lib.recommended.some((r) => r.url === s.libraryBusy) ? 'Downloading…' : 'Add'}</button></form>` +
       (s.libraryError ? `<p class="desc warn">${esc(s.libraryError)}</p>` : '');
-    const search = `<input class="field libsearch" id="libSearch" placeholder="Ajan ara…" value="${esc(libQuery)}" autocomplete="off" aria-label="Ajan ara">`;
+    const search = `<input class="field libsearch" id="libSearch" placeholder="Search agents…" value="${esc(libQuery)}" autocomplete="off" aria-label="Search agents">`;
     const sources = lib.sources.map((src) => {
-      const agents = src.agents.filter((a) => !q || `${a.name} ${a.description}`.toLocaleLowerCase('tr').includes(q));
+      const agents = src.agents.filter((a) => !q || `${a.name} ${a.description}`.toLowerCase().includes(q));
       if (q && !agents.length) return '';
       const open = q || libOpen.has(src.id);
       const rows = open ? agents.map((a) => {
         const count = inOffice.get(a.name) ?? 0;
-        return `<div class="ros"><div class="ros-h"><span class="grow"><b>${esc(a.name)}</b><span>${esc(a.description || 'Açıklama yok')}</span>${a.model && a.model !== 'inherit' ? `<em>model: ${esc(a.model)}</em>` : ''}</span>` +
-          `<button type="button" class="btn small${count ? ' ghost' : ''}" data-add="${esc(a.key)}" ${full ? 'disabled title="Ofis dolu"' : ''}>${count ? `Bir tane daha` : 'Ofise ekle'}</button></div></div>`;
+        return `<div class="ros"><div class="ros-h"><span class="grow"><b>${esc(a.name)}</b><span>${esc(a.description || 'No description')}</span>${a.model && a.model !== 'inherit' ? `<em>model: ${esc(a.model)}</em>` : ''}</span>` +
+          `<button type="button" class="btn small${count ? ' ghost' : ''}" data-add="${esc(a.key)}" ${full ? 'disabled title="The office is full"' : ''}>${count ? `One more` : 'Add to office'}</button></div></div>`;
       }).join('') : '';
-      const remove = src.kind === 'repo' ? `<button type="button" class="link" data-unsource="${esc(src.id)}">kaldır</button>` : '';
+      const remove = src.kind === 'repo' ? `<button type="button" class="link" data-unsource="${esc(src.id)}">remove</button>` : '';
       return `<div class="libsrc"><button type="button" class="libhead" data-src="${esc(src.id)}"><span class="chev${open ? ' open' : ''}">›</span><b>${esc(src.label)}</b><span class="cnt">${src.agents.length}</span></button>${remove}</div>` +
         (open ? `<div class="roster">${rows}</div>` : '');
     }).join('');
-    return (full ? '<div class="note">Ofis dolu (en fazla ' + s.workers.max + ' ajan). Eklemek için Ofis sekmesinden birini çıkar.</div>' : '') +
-      search + recommended + sources + '<span class="lbl">Repodan ajan ekle</span>' + importForm;
+    return (full ? '<div class="note">The office is full (' + s.workers.max + ' agents at most). Send someone home from the Office tab to add another.</div>' : '') +
+      search + recommended + sources + '<span class="lbl">Add agents from a repository</span>' + importForm;
   }
 
   function rosterList(kind, items, title) {
     if (!items.length) {
-      if (kind === 'agent') return '<p class="desc">Ajan bulunamadı.</p>';
-      return title ? `<span class="lbl">${title}</span><p class="desc">${kind === 'skill' ? 'Bu projede beceri yok.' : 'Bu projede komut yok.'}</p>` : '';
+      if (kind === 'agent') return '<p class="desc">No agents found.</p>';
+      return title ? `<span class="lbl">${title}</span><p class="desc">${kind === 'skill' ? 'This project has no skills.' : 'This project has no commands.'}</p>` : '';
     }
     const live = new Map();
     for (const a of session.state.agents.values()) if (a.kind === 'sub') live.set(a.type, (live.get(a.type) ?? 0) + 1);
@@ -770,23 +770,23 @@ export function createUI(scene) {
       const meta = [sourceLabel(it.source), it.model ? `model: ${it.model}` : '', it.hint ? esc(it.hint) : ''].filter(Boolean).join(' · ');
       return `<div class="ros${open ? ' open' : ''}" data-kind="${kind}" data-name="${esc(it.name)}">` +
         `<button type="button" class="ros-h" data-pick>${kind === 'agent' ? '<span class="mini-av"></span>' : `<span class="ros-ic">${kind === 'skill' ? '✦' : '/'}</span>`}` +
-        `<span class="grow"><b>${esc(it.name)}</b><span>${esc(it.description || 'Açıklama yok')}</span><em>${esc(meta)}</em></span>` +
-        (busy ? `<span class="st live" style="--c:var(--s-write)"><i class="dot"></i>${busy > 1 ? `${busy} çalışıyor` : 'çalışıyor'}</span>` : '<span class="go">Görev ver</span>') + '</button>' +
-        (open ? `<form class="ros-task" data-task><input placeholder="${kind === 'agent' ? 'Bu ajan ne yapsın?' : 'Ne için kullanılsın?'}" autocomplete="off" aria-label="Görev"><button class="send" type="submit" aria-label="Gönder">${ICON.send}</button></form>` : '') +
+        `<span class="grow"><b>${esc(it.name)}</b><span>${esc(it.description || 'No description')}</span><em>${esc(meta)}</em></span>` +
+        (busy ? `<span class="st live" style="--c:var(--s-write)"><i class="dot"></i>${busy > 1 ? `${busy} working` : 'working'}</span>` : '<span class="go">Give a task</span>') + '</button>' +
+        (open ? `<form class="ros-task" data-task><input placeholder="${kind === 'agent' ? 'What should this agent do?' : 'What should it be used for?'}" autocomplete="off" aria-label="Task"><button class="send" type="submit" aria-label="Send">${ICON.send}</button></form>` : '') +
         '</div>';
     }).join('');
     return (title ? `<span class="lbl">${title}</span>` : '') + `<div class="roster">${rows}</div>`;
   }
 
   function tasksList(tasks) {
-    if (!tasks.length) return '<p class="desc">Bu oturumun görev listesi boş. Claude bir iş planı çıkardığında (TaskCreate) görevler burada ve toplantı odasındaki tahtada görünür.</p>';
+    if (!tasks.length) return '<p class="desc">This session\'s task list is empty. When Claude makes a plan (TaskCreate), the tasks show up here and on the whiteboard in the meeting room.</p>';
     const done = tasks.filter((t) => t.status === 'completed').length;
-    const bar = `<div class="tprog"><i style="width:${Math.round((done / tasks.length) * 100)}%"></i></div><p class="desc">${done} / ${tasks.length} görev bitti</p>`;
+    const bar = `<div class="tprog"><i style="width:${Math.round((done / tasks.length) * 100)}%"></i></div><p class="desc">${done} / ${tasks.length} tasks done</p>`;
     return bar + ['in_progress', 'pending', 'completed'].map((status) => {
       const list = tasks.filter((t) => t.status === status);
       if (!list.length) return '';
       return `<span class="lbl">${TASK_LABEL[status]} · ${list.length}</span><div class="tasks">` + list.map((t) =>
-        `<div class="task ${status}${t.blocked && status !== 'completed' ? ' blocked' : ''}"><i></i><span>${esc(status === 'in_progress' && t.activeForm ? t.activeForm : t.subject)}${t.blocked && status !== 'completed' ? '<small>başka bir görevi bekliyor</small>' : ''}</span></div>`).join('') + '</div>';
+        `<div class="task ${status}${t.blocked && status !== 'completed' ? ' blocked' : ''}"><i></i><span>${esc(status === 'in_progress' && t.activeForm ? t.activeForm : t.subject)}${t.blocked && status !== 'completed' ? '<small>waiting on another task</small>' : ''}</span></div>`).join('') + '</div>';
     }).join('');
   }
 
@@ -826,7 +826,7 @@ export function createUI(scene) {
     for (const b of root.querySelectorAll('[data-add]')) {
       b.addEventListener('click', () => {
         b.disabled = true;
-        b.textContent = 'Geliyor…';
+        b.textContent = 'On the way…';
         session.addWorker(b.dataset.add);
       });
     }
@@ -877,7 +877,7 @@ export function createUI(scene) {
     const steps = agent?.steps ?? [];
     el.innerHTML = (agent ? statsRow(agent) : '') + (steps.length
       ? steps.slice(-20).map((st) => `<div class="step ${st.status}"><span class="tm">${st.time}</span><span>${esc(st.detail)}${st.error ? `<small>${esc(st.error)}</small>` : ''}</span></div>`).join('')
-      : '<div class="m sys">Henüz adım yok.</div>');
+      : '<div class="m sys">No steps yet.</div>');
     const body = $('pbody');
     if (body) body.scrollTop = body.scrollHeight;
   }
@@ -934,7 +934,7 @@ export function createUI(scene) {
         autostart = value;
       } catch (err) {
         autoSw.setAttribute('aria-checked', autostart);
-        console.error('Windows ile başlatma ayarlanamadı', err);
+        console.error('Could not set start with Windows', err);
       }
     });
     for (const [id, key] of [['notifySw', 'notify'], ['soundSw', 'sound']]) {
@@ -953,7 +953,7 @@ export function createUI(scene) {
         if (b.dataset.wact === 'remove') {
           if (b.dataset.sure) { session.removeWorker(panel.id); return; }
           b.dataset.sure = '1';
-          b.textContent = 'Emin misin? Çıkar';
+          b.textContent = 'Sure? Send home';
         }
       });
     }
@@ -974,7 +974,7 @@ export function createUI(scene) {
       renderDrafts();
       $('clipBtn').addEventListener('click', () => fileInput.click());
       fileInput.addEventListener('change', () => { addFiles(fileInput.files); fileInput.value = ''; });
-      // Ctrl+V ile resim ya da dosya yapıştırma; düz metin normal yapışır.
+      // Ctrl+V pastes an image or a file; plain text pastes as usual.
       root.addEventListener('paste', (e) => {
         const files = [...(e.clipboardData?.files ?? [])];
         if (!files.length || input.disabled) return;
@@ -1002,10 +1002,10 @@ export function createUI(scene) {
         drafts = [];
         input.value = '';
         renderDrafts();
-        session.sendMessage(text || 'Ekteki dosyalara bak.', panel.id, files);
+        session.sendMessage(text || 'Take a look at the attached files.', panel.id, files);
         const target = session.state.agents.get(panel.id);
-        if (target?.kind === 'sub') sayBubble(panel.id, 'Mesajın bir sonraki adımımda bana ulaşacak');
-        else if (target?.kind === 'worker') sayBubble(panel.id, target.resting ? 'Tamam, masama geçiyorum' : 'Not aldım, sıradaki adımımda bakarım');
+        if (target?.kind === 'sub') sayBubble(panel.id, 'Your message reaches me at my next step');
+        else if (target?.kind === 'worker') sayBubble(panel.id, target.resting ? 'On it, heading to my desk' : 'Noted, I will look at it at my next step');
       });
       setTimeout(() => (input.disabled ? null : input.focus({ preventScroll: true })), 60);
     }
@@ -1037,10 +1037,10 @@ export function createUI(scene) {
     }
   }
 
-  // ---------- izin ve soru kartları ----------
+  // ---------- permission and question cards ----------
   function renderRequests() {
     const reqs = session.state.requests;
-    // Açık ajan panelinin isteği öne gelir; panel açıkken tek kart gösterilir.
+    // The open agent panel's request comes first; with a panel open only one card shows.
     const focus = panel?.type === 'agent' ? panel.id : null;
     const sorted = [...reqs].sort((a, b) => (b.agentId === focus) - (a.agentId === focus));
     const visible = sorted.slice(0, panel ? 1 : 2);
@@ -1050,7 +1050,7 @@ export function createUI(scene) {
       const more = document.createElement('button');
       more.className = 'more';
       more.dataset.hit = '';
-      more.textContent = `+${reqs.length - visible.length} istek daha${panel ? ' · paneli kapat' : ''}`;
+      more.textContent = `+${reqs.length - visible.length} more request${reqs.length - visible.length === 1 ? '' : 's'}${panel ? ' · close the panel' : ''}`;
       more.addEventListener('click', () => panel && closePanel());
       requestsEl.appendChild(more);
     }
@@ -1077,13 +1077,13 @@ export function createUI(scene) {
     const input = req.input ?? {};
     const detail = input.command ?? input.file_path ?? input.url ?? input.pattern ?? JSON.stringify(input).slice(0, 160);
     el.innerHTML =
-      `<div class="qh"><span class="mini-av"></span>${esc(agentLabel(req.agentId))} izin istiyor</div>` +
+      `<div class="qh"><span class="mini-av"></span>${esc(agentLabel(req.agentId))} asks for permission</div>` +
       `<div class="q">${esc(req.toolName)}</div><pre>${esc(detail)}</pre>` +
-      `<div class="row start"><button class="btn" data-a="allow">İzin ver</button><button class="btn ghost" data-a="deny">Reddet</button>` +
-      (req.suggestions?.length ? '<button class="btn ghost" data-a="always">Bu oturumda hep izin ver</button>' : '') +
-      (EDIT_TOOLS.has(req.toolName) ? '<button class="btn ghost" data-a="edits">İzin ver + düzenlemeleri otomatik onayla</button>' : '') +
-      `<button class="link" data-a="terminal">Terminalde cevapla</button></div>` +
-      '<div class="kbd">Enter izin ver · N reddet · T terminal</div>';
+      `<div class="row start"><button class="btn" data-a="allow">Allow</button><button class="btn ghost" data-a="deny">Deny</button>` +
+      (req.suggestions?.length ? '<button class="btn ghost" data-a="always">Always allow in this session</button>' : '') +
+      (EDIT_TOOLS.has(req.toolName) ? '<button class="btn ghost" data-a="edits">Allow + auto-accept edits</button>' : '') +
+      `<button class="link" data-a="terminal">Answer in the terminal</button></div>` +
+      '<div class="kbd">Enter allow · N deny · T terminal</div>';
     el.addEventListener('click', (e) => {
       const b = e.target.closest('[data-a]');
       if (!b) return;
@@ -1107,13 +1107,13 @@ export function createUI(scene) {
     const picks = questions.map(() => new Set());
     const custom = questions.map(() => '');
     el.innerHTML =
-      `<div class="qh"><span class="mini-av"></span>${esc(agentLabel(req.agentId))} soruyor</div>` +
+      `<div class="qh"><span class="mini-av"></span>${esc(agentLabel(req.agentId))} asks</div>` +
       questions.map((q, qi) =>
         `<div class="qblock">${q.header ? `<span class="chip-h">${esc(q.header)}</span>` : ''}<div class="q">${esc(q.question)}</div>` +
         `<div class="opts">${(q.options ?? []).map((o, oi) => `<button type="button" class="opt" data-q="${qi}" data-o="${oi}"><b>${esc(o.label)}</b>${o.description ? `<span>${esc(o.description)}</span>` : ''}</button>`).join('')}</div>` +
-        `<input class="field other" data-q="${qi}" placeholder="Başka bir cevap…" autocomplete="off"></div>`).join('') +
-      `<div class="row start"><button class="btn" data-send disabled>Gönder</button><button class="link" data-terminal>Terminalde cevapla</button></div>` +
-      '<div class="kbd">1-9 seç · Enter gönder · T terminal</div>';
+        `<input class="field other" data-q="${qi}" placeholder="Another answer…" autocomplete="off"></div>`).join('') +
+      `<div class="row start"><button class="btn" data-send disabled>Send</button><button class="link" data-terminal>Answer in the terminal</button></div>` +
+      '<div class="kbd">1-9 pick · Enter send · T terminal</div>';
     const sendBtn = el.querySelector('[data-send]');
     const refresh = () => {
       el.querySelectorAll('.opt').forEach((b) => b.classList.toggle('picked', picks[b.dataset.q].has(Number(b.dataset.o))));
@@ -1150,7 +1150,7 @@ export function createUI(scene) {
     setTimeout(then, 200);
   }
 
-  // ---------- olaylar ----------
+  // ---------- events ----------
   const root = () => panelEl;
 
   // ---------- alerts ----------
@@ -1160,8 +1160,8 @@ export function createUI(scene) {
       if (seenRequests.has(req.requestId)) continue;
       seenRequests.add(req.requestId);
       const who = agentLabel(req.agentId);
-      if (req.kind === 'question') alertUser(`${who} soruyor`, req.input?.questions?.[0]?.question ?? 'Ofiste bir soru bekliyor.');
-      else alertUser(`${who} izin istiyor`, `${req.toolName}: ${String(req.input?.command ?? req.input?.file_path ?? '').slice(0, 120)}`);
+      if (req.kind === 'question') alertUser(`${who} has a question`, req.input?.questions?.[0]?.question ?? 'A question is waiting in the office.');
+      else alertUser(`${who} asks for permission`, `${req.toolName}: ${String(req.input?.command ?? req.input?.file_path ?? '').slice(0, 120)}`);
     }
   }
 
@@ -1170,7 +1170,7 @@ export function createUI(scene) {
     const s = session.state;
     const reqs = s.requests.length;
     const others = s.sessions.filter((x) => urgent(x) && x.sessionId !== s.attached?.sessionId).length;
-    const parts = [reqs ? `${reqs} istek seni bekliyor` : '', others ? `${others} oturum seni bekliyor` : ''].filter(Boolean);
+    const parts = [reqs ? `${reqs} request${reqs === 1 ? '' : 's'} waiting for you` : '', others ? `${others} session${others === 1 ? '' : 's'} waiting for you` : ''].filter(Boolean);
     invoke('set_tray_status', { text: parts.join(' · ') }).catch(() => {});
   }
 
@@ -1215,7 +1215,7 @@ export function createUI(scene) {
       if (waitingSeen.has(key)) continue;
       waitingSeen.add(key);
       // A finished turn is marked in the list only; someone typing in that terminal needs no ping.
-      if (x.waiting !== 'done') alertUser(`${sessionName(x)} ${WAITING_LABEL[x.waiting] ?? 'bekliyor'}`, 'Bu oturum ofise bağlı değil; terminalde cevapla ya da ofisi ona bağla.');
+      if (x.waiting !== 'done') alertUser(`${sessionName(x)} ${WAITING_LABEL[x.waiting] ?? 'is waiting'}`, 'The office is not attached to this session; answer in the terminal or attach the office to it.');
     }
   }
 
@@ -1227,7 +1227,7 @@ export function createUI(scene) {
     turnStarted = 0;
     if (took < 20_000) return;
     const last = [...session.state.chat].reverse().find((m) => m.role === 'assistant');
-    alertUser('Claude bitirdi', last ? last.text.slice(0, 140) : 'Sıra sende.');
+    alertUser('Claude is done', last ? last.text.slice(0, 140) : 'Your turn.');
   }
 
   session.subscribe((change) => {
@@ -1275,14 +1275,14 @@ export function createUI(scene) {
         break;
       case 'visit':
         scene.visit(change.from, change.to);
-        sayBubble(change.from, '✉ mesaj götürüyorum');
+        sayBubble(change.from, '✉ delivering a message');
         break;
       case 'usage':
         renderMeter();
         break;
       case 'alarm':
         renderAlarm();
-        if (change.started) alertUser('Alarm', session.state.alarm?.cause ?? 'Bir şeyler bozuldu.');
+        if (change.started) alertUser('Alarm', session.state.alarm?.cause ?? 'Something broke.');
         break;
       case 'agent_chat':
         if (panel?.type === 'meeting') renderMeetingThread();
@@ -1299,7 +1299,7 @@ export function createUI(scene) {
         break;
       }
       case 'decided':
-        alertUser(`${agentLabel(change.id)} kendi karar verdi`, change.question || 'Soru sorma kapalı olduğu için kendi seçti.');
+        alertUser(`${agentLabel(change.id)} decided on its own`, change.question || 'Questions are switched off, so it picked by itself.');
         break;
       case 'say':
         sayBubble(change.id, change.text);
@@ -1335,7 +1335,7 @@ export function createUI(scene) {
           renderDock();
           renderRequests();
         } else if (panel?.type === 'meeting') renderPanel();
-        if (m?.phase === 'done') alertUser('Toplantı bitti', m.summary.slice(0, 140));
+        if (m?.phase === 'done') alertUser('Meeting over', m.summary.slice(0, 140));
         break;
       }
       case 'requests':
@@ -1360,7 +1360,7 @@ export function createUI(scene) {
         const justAttached = id && id !== wasAttached;
         wasAttached = id;
         syncYou();
-        // Bağlanınca sohbet paneline geç; geçmiş orada görünür.
+        // On attach, switch to the chat panel; the history shows there.
         if (justAttached) { panel = { type: 'agent', id: 'main' }; scene.select('main'); renderPanel(true); renderDock(); }
         else if (panel?.type === 'agent' && !session.state.agents.has(panel.id)) closePanel();
         else if (panel && panel.type !== 'agent') renderPanel();

@@ -33,7 +33,7 @@ test('library lists the built-in and the project agents; repo URLs parse', async
   try {
     o.cmd({ cmd: 'library' });
     const lib = await o.until((e) => e.type === 'library');
-    assert(lib.sources.find((s) => s.id === 'builtin').agents.some((a) => a.key === 'builtin/genel'));
+    assert(lib.sources.find((s) => s.id === 'builtin').agents.some((a) => a.key === 'builtin/general'));
     const project = lib.sources.find((s) => s.id === 'project');
     assert.equal(project.agents[0].name, 'tester');
     assert.equal(project.agents[0].prompt, undefined, 'prompts stay in the bridge');
@@ -48,12 +48,12 @@ test('an office agent keeps one session across tasks and uses its definition', a
   try {
     const w = await o.add('project/tester');
     assert.equal(w.title, 'tester');
-    o.cmd({ cmd: 'worker_send', id: w.id, text: 'Birinci görev' });
+    o.cmd({ cmd: 'worker_send', id: w.id, text: 'First task' });
     const reply = await o.until((e) => e.type === 'worker_chat' && e.role === 'assistant');
-    assert.match(reply.text, /Birinci görev/);
+    assert.match(reply.text, /First task/);
     await o.idle(w.id);
-    o.cmd({ cmd: 'worker_send', id: w.id, text: 'İkinci görev' });
-    await o.until((e) => e.type === 'worker_chat' && e.role === 'assistant' && /İkinci/.test(e.text));
+    o.cmd({ cmd: 'worker_send', id: w.id, text: 'Second task' });
+    await o.until((e) => e.type === 'worker_chat' && e.role === 'assistant' && /Second/.test(e.text));
     await o.idle(w.id);
     const [first, second] = o.calls();
     assert.equal(first.resume, false);
@@ -69,9 +69,9 @@ test('at most five agents; removing one frees a place', async () => {
   const o = await office();
   try {
     const ids = [];
-    for (let i = 0; i < 5; i++) ids.push((await o.add('builtin/genel')).id);
-    o.cmd({ cmd: 'worker_add', key: 'builtin/genel' });
-    assert.match((await o.until((e) => e.type === 'error')).message, /en fazla 5/i);
+    for (let i = 0; i < 5; i++) ids.push((await o.add('builtin/general')).id);
+    o.cmd({ cmd: 'worker_add', key: 'builtin/general' });
+    assert.match((await o.until((e) => e.type === 'error')).message, /at most 5/i);
     o.cmd({ cmd: 'worker_remove', id: ids[0] });
     await o.until((e) => e.type === 'worker_removed' && e.id === ids[0]);
     assert((await o.add('project/tester')).id);
@@ -81,8 +81,8 @@ test('at most five agents; removing one frees a place', async () => {
 test("an agent's permission prompt reaches the office and a message lands mid-task", async () => {
   const o = await office();
   try {
-    const w = await o.add('builtin/genel');
-    o.cmd({ cmd: 'worker_send', id: w.id, text: 'SLOW uzun iş' });
+    const w = await o.add('builtin/general');
+    o.cmd({ cmd: 'worker_send', id: w.id, text: 'SLOW long job' });
     await o.until((e) => e.type === 'worker_state' && e.id === w.id && e.state === 'working');
     const session = o.calls()[0]?.sessionId ?? (await o.wait(200), o.calls()[0].sessionId);
     const permP = o.post({ hook_event_name: 'PermissionRequest', session_id: session, tool_name: 'Bash', tool_input: { command: 'npm test' } });
@@ -91,10 +91,10 @@ test("an agent's permission prompt reaches the office and a message lands mid-ta
     o.cmd({ cmd: 'answer', requestId: req.requestId, behavior: 'allow' });
     assert.equal((await permP).json.hookSpecificOutput.decision.behavior, 'allow');
 
-    o.cmd({ cmd: 'worker_send', id: w.id, text: 'şunu da ekle' });
-    assert.equal((await o.until((e) => e.type === 'worker_chat' && e.role === 'user' && e.text === 'şunu da ekle')).pending, true);
+    o.cmd({ cmd: 'worker_send', id: w.id, text: 'add this too' });
+    assert.equal((await o.until((e) => e.type === 'worker_chat' && e.role === 'user' && e.text === 'add this too')).pending, true);
     const r = await o.post({ hook_event_name: 'PostToolUse', session_id: session, tool_name: 'Read' });
-    assert.match(r.json.hookSpecificOutput.additionalContext, /şunu da ekle/);
+    assert.match(r.json.hookSpecificOutput.additionalContext, /add this too/);
     // Its own session never shows up as a session to attach to.
     o.events.length = 0;
     o.cmd({ cmd: 'status' });
@@ -106,30 +106,30 @@ test("an agent's permission prompt reaches the office and a message lands mid-ta
 test('meeting: a working agent pauses, everyone speaks read-only, work resumes after', async () => {
   const o = await office();
   try {
-    const a = await o.add('builtin/genel');
+    const a = await o.add('builtin/general');
     const b = await o.add('project/tester');
-    o.cmd({ cmd: 'worker_send', id: a.id, text: 'SLOW ana iş' });
+    o.cmd({ cmd: 'worker_send', id: a.id, text: 'SLOW main job' });
     await o.until((e) => e.type === 'worker_state' && e.id === a.id && e.state === 'working');
-    o.cmd({ cmd: 'meeting_start', topic: 'Sürüm planı', participants: [a.id, b.id] });
+    o.cmd({ cmd: 'meeting_start', topic: 'Release plan', participants: [a.id, b.id] });
     await o.until((e) => e.type === 'meeting_started');
-    await o.until((e) => e.type === 'worker_chat' && e.id === a.id && /ara verdi/.test(e.text));
+    await o.until((e) => e.type === 'worker_chat' && e.id === a.id && /Paused its work/.test(e.text));
     const l1 = await o.until((e) => e.type === 'meeting_line' && e.speaker === a.id, 6000);
     const l2 = await o.until((e) => e.type === 'meeting_line' && e.speaker === b.id, 6000);
-    assert.match(l1.text, /Toplantı\] Konu: Sürüm planı/);
-    assert.match(l2.text, /Toplantı\] Konu/);
+    assert.match(l1.text, /Meeting\] Topic: Release plan/);
+    assert.match(l2.text, /Meeting\] Topic/);
     await o.until((e) => e.type === 'meeting_phase' && e.phase === 'waiting');
-    o.cmd({ cmd: 'meeting_interject', text: 'Testler önce' });
+    o.cmd({ cmd: 'meeting_interject', text: 'Tests first' });
     await o.until((e) => e.type === 'meeting_line' && e.speaker === b.id, 6000);
     o.cmd({ cmd: 'meeting_end' });
     const summary = await o.until((e) => e.type === 'meeting_summary', 6000);
-    assert.match(summary.summary, /Karar: devam/);
+    assert.match(summary.summary, /Decision: carry on/);
     // The paused agent gets its work back after the summary.
-    for (let i = 0; i < 80 && !o.calls().some((c) => /kaldığın yerden devam/.test(c.prompt)); i++) await o.wait(50);
+    for (let i = 0; i < 80 && !o.calls().some((c) => /Pick up the work you left/.test(c.prompt)); i++) await o.wait(50);
     const calls = o.calls();
-    const meetingCalls = calls.filter((c) => /Toplantı/.test(c.prompt) && !/kaldığın yerden/.test(c.prompt));
+    const meetingCalls = calls.filter((c) => /Meeting/.test(c.prompt) && !/Pick up the work you left/.test(c.prompt));
     assert(meetingCalls.every((c) => c.mode === 'plan'), 'meeting turns are read-only');
-    assert(meetingCalls.some((c) => /Testler önce/.test(c.prompt)), 'the interjection reached the next round');
-    const resumed = calls.find((c) => /kaldığın yerden devam/.test(c.prompt));
+    assert(meetingCalls.some((c) => /Tests first/.test(c.prompt)), 'the interjection reached the next round');
+    const resumed = calls.find((c) => /Pick up the work you left/.test(c.prompt));
     assert.equal(resumed.sessionId, calls[0].sessionId, 'the paused agent resumes in its own session');
     assert.equal(resumed.mode, null);
   } finally { await o.done(); }

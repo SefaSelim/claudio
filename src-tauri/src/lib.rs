@@ -14,7 +14,7 @@ use tauri::{AppHandle, Manager, RunEvent, WebviewWindow, WindowEvent};
 use position::PendingMove;
 use sidecar::Sidecar;
 
-/// Ön yüzün bildirdiği tıklanabilir bir alan (CSS piksel, pencereye göre).
+/// A clickable area reported by the frontend (CSS pixels, relative to the window).
 /// With `poly`, only the polygon inside the box counts (the office's diamond shape).
 #[derive(Deserialize, Clone, Debug)]
 pub(crate) struct Rect {
@@ -63,7 +63,7 @@ fn quit_app(app: AppHandle) {
     app.exit(0);
 }
 
-/// Ön yüzden gelen bir JSON komut satırını yan sürece yazar.
+/// Writes a JSON command line from the frontend to the sidecar process.
 #[tauri::command]
 fn sidecar_send(line: String, sidecar: tauri::State<'_, Sidecar>) -> Result<(), String> {
     sidecar.send(&line)
@@ -98,19 +98,19 @@ fn settle_position(window: WebviewWindow, content: Rect) {
     std::thread::spawn(move || drag::settle(&window, content));
 }
 
-/// Taşıma tutamağına çift tıklanınca pencereyi sağ alta geri götürür.
+/// Double-clicking the move handle puts the window back in the bottom-right corner.
 #[tauri::command]
 fn reset_position(window: WebviewWindow) -> Result<(), String> {
     position::reset(&window).map_err(|e| e.to_string())
 }
 
-/// Tıklamayı yok sayan pencere fare olayı almaz; bu yüzden imleci kendimiz yoklarız.
-/// İmleç bir alanın üstündeyse pencere tıklanabilir olur, değilse tıklama alttaki pencereye geçer.
+/// A window that ignores clicks gets no mouse events, so we poll the cursor ourselves.
+/// Over an area the window becomes clickable; elsewhere the click goes through to the window below.
 fn start_click_through(win: WebviewWindow, regions: Arc<HitRegions>, dragging: Arc<std::sync::atomic::AtomicBool>) {
     thread::spawn(move || {
         let mut ignoring: Option<bool> = None;
         loop {
-            // ~60 Hz: imleç hızlı hareket etse de ilk tıklama doğru pencereye gider.
+            // ~60 Hz: even when the cursor moves fast, the first click goes to the right window.
             thread::sleep(Duration::from_millis(16));
             let (Ok(cursor), Ok(origin), Ok(scale)) =
                 (win.cursor_position(), win.inner_position(), win.scale_factor())
@@ -153,7 +153,7 @@ pub fn run() {
         ])
         .on_window_event(|window, event| {
             if let WindowEvent::Moved(pos) = event {
-                // Küçültülmüş pencere Windows'ta (-32000, -32000) civarına taşınır; bunu kaydetme.
+                // On Windows a minimized window moves to around (-32000, -32000); don't save that.
                 if !window.is_minimized().unwrap_or(false) && pos.x > -10_000 && pos.y > -10_000 {
                     window.state::<PendingMove>().record(*pos);
                 }
@@ -162,7 +162,7 @@ pub fn run() {
         .setup(move |app| {
             let win = app
                 .get_webview_window("main")
-                .expect("main penceresi tauri.conf.json içinde tanımlı olmalı");
+                .expect("the main window must be defined in tauri.conf.json");
             position::restore(&win)?;
             win.show()?;
             position::start_saver(app.handle().clone());
@@ -173,7 +173,7 @@ pub fn run() {
             Ok(())
         })
         .build(tauri::generate_context!())
-        .expect("Tauri uygulaması başlatılamadı")
+        .expect("could not start the Tauri app")
         .run(|app, event| {
             if let RunEvent::Exit = event {
                 if let Some(sidecar) = app.try_state::<Sidecar>() {

@@ -76,13 +76,13 @@ test('history, live transcript and hook events', async () => {
 test('messages: after a tool, at the end of a turn, and by waking an idle session', async () => {
   const b = await attached();
   try {
-    b.cmd({ cmd: 'send', text: 'testleri de çalıştır' });
+    b.cmd({ cmd: 'send', text: 'run the tests too' });
     await b.until((e) => e.type === 'queued');
     const r1 = await b.post({ hook_event_name: 'PostToolUse', session_id: SID, tool_name: 'Read' });
-    assert.match(r1.json.hookSpecificOutput.additionalContext, /testleri de çalıştır/);
-    assert.equal((await b.until((e) => e.type === 'delivered')).via, 'araç sonrası');
+    assert.match(r1.json.hookSpecificOutput.additionalContext, /run the tests too/);
+    assert.equal((await b.until((e) => e.type === 'delivered')).via, 'after a tool');
 
-    b.cmd({ cmd: 'send', text: 'bitince özet yaz' });
+    b.cmd({ cmd: 'send', text: 'write a summary when done' });
     await b.until((e) => e.type === 'queued');
     assert.equal((await b.post({ hook_event_name: 'Stop', session_id: SID })).json.decision, 'block');
 
@@ -91,7 +91,7 @@ test('messages: after a tool, at the end of a turn, and by waking an idle sessio
     waiter.stderr.on('data', (d) => (stderr += d));
     waiter.stdin.end(JSON.stringify({ session_id: SID }));
     await b.wait(500);
-    b.cmd({ cmd: 'send', text: 'uyan ve README güncelle' });
+    b.cmd({ cmd: 'send', text: 'wake up and update the README' });
     assert.equal(await new Promise((r) => waiter.on('exit', r)), 2);
     assert.match(stderr, /README/);
   } finally { await b.stop(); }
@@ -176,7 +176,7 @@ test('signals and usage', async () => {
     await b.post({ hook_event_name: 'PostToolUseFailure', session_id: SID, tool_name: 'Bash', tool_use_id: 't1', tool_input: { command }, error: `Exit code 1${nl}  2 failing` });
     const end = await b.until((e) => e.type === 'signal' && e.phase === 'end');
     assert.equal(end.signals[1].result, 'fail');
-    assert.equal(end.signals[1].detail, '2 başarısız');
+    assert.equal(end.signals[1].detail, '2 failed');
   } finally { await b.stop(); }
 });
 
@@ -200,9 +200,9 @@ test('a message to a subagent that has finished is refused, not left queued', as
   try {
     await b.post({ hook_event_name: 'SubagentStart', session_id: SID, agent_id: 'sub1', agent_type: 'Explore' });
     assert.deepEqual((await b.post({ hook_event_name: 'SubagentStop', session_id: SID, agent_id: 'sub1' })).json, {});
-    b.cmd({ cmd: 'send', text: 'hâlâ orada mısın?', target: 'sub1', clientId: 'c1' });
+    b.cmd({ cmd: 'send', text: 'are you still there?', target: 'sub1', clientId: 'c1' });
     const err = await b.until((e) => e.type === 'error' && e.clientId === 'c1');
-    assert.match(err.message, /bitirdi/);
+    assert.match(err.message, /has finished/);
     assert(!b.events.some((e) => e.type === 'queued'));
   } finally { await b.stop(); }
 });
@@ -229,7 +229,7 @@ test('a waiter that disconnected before the message does not take it', async () 
 test('detaching drops messages that never reached the session', async () => {
   const b = await attached();
   try {
-    b.cmd({ cmd: 'send', text: 'eski mesaj' });
+    b.cmd({ cmd: 'send', text: 'old message' });
     await b.until((e) => e.type === 'queued');
     b.cmd({ cmd: 'detach' });
     await b.until((e) => e.type === 'detached');
@@ -242,12 +242,12 @@ test('detaching drops messages that never reached the session', async () => {
 test('a message lands after a failed tool call as well', async () => {
   const b = await attached({ status: 'busy' });
   try {
-    b.cmd({ cmd: 'send', text: 'hata olursa dur' });
+    b.cmd({ cmd: 'send', text: 'stop if it fails' });
     await b.until((e) => e.type === 'queued');
     const r = await b.post({ hook_event_name: 'PostToolUseFailure', session_id: SID, tool_name: 'Bash', error: 'Exit code 1' });
     assert.equal(r.json.hookSpecificOutput.hookEventName, 'PostToolUseFailure');
-    assert.match(r.json.hookSpecificOutput.additionalContext, /hata olursa dur/);
-    assert.equal((await b.until((e) => e.type === 'delivered')).via, 'araç sonrası');
+    assert.match(r.json.hookSpecificOutput.additionalContext, /stop if it fails/);
+    assert.equal((await b.until((e) => e.type === 'delivered')).via, 'after a tool');
   } finally { await b.stop(); }
 });
 

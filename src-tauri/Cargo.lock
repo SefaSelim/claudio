@@ -473,7 +473,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "claudio-ofis"
+name = "claudio"
 version = "0.13.0"
 dependencies = [
  "serde",

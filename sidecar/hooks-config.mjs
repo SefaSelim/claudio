@@ -1,7 +1,7 @@
-// ~/.claude/settings.json içine ofisin hook'larını ekler ya da kaldırır.
-// Kullanıcı düzeyi hook'lar bütün Claude Code oturumlarında çalışır ve Claude Code
-// ayar dosyasını izlediği için açık oturumlar da yeniden başlatmadan alır.
-// Ofis kapalıyken http hook'ları bağlanamaz ve Claude Code bunu engelleyici olmayan bir hata sayar.
+// Adds the office's hooks to ~/.claude/settings.json, or removes them.
+// User-level hooks run in every Claude Code session, and since Claude Code watches its
+// settings file, running sessions pick them up without a restart.
+// While the office is closed the http hooks cannot connect, and Claude Code treats that as a non-blocking error.
 
 import fs from 'node:fs';
 import path from 'node:path';
@@ -23,7 +23,7 @@ function readSettings() {
     return JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
   } catch (err) {
     if (err.code === 'ENOENT') return {};
-    throw new Error(`settings.json okunamadı: ${err.message}`);
+    throw new Error(`Could not read settings.json: ${err.message}`);
   }
 }
 
@@ -60,8 +60,8 @@ export function hooksInstalled() {
 }
 
 /**
- * @param {string} token  köprünün isteği tanıması için başlıkta gönderilen paylaşılan gizli değer
- * @param {string} waiterPath  claudio-waiter.mjs dosyasının mutlak yolu
+ * @param {string} token  shared secret sent in a header so the bridge recognises the request
+ * @param {string} waiterPath  absolute path of claudio-waiter.mjs
  */
 export function installHooks({ token, waiterPath }) {
   const settings = withoutOurs(readSettings());
@@ -69,14 +69,14 @@ export function installHooks({ token, waiterPath }) {
   if (fs.existsSync(settingsPath()) && !fs.existsSync(backup)) fs.copyFileSync(settingsPath(), backup);
 
   const http = (timeout) => ({ type: 'http', url: HOOK_URL, timeout, headers: { 'X-Claudio-Token': token } });
-  // Boştaki oturumu ofisten gelen mesajla uyandıran bekçi; her tur sonunda yeniden kurulur.
+  // The waiter that wakes an idle session with a message from the office; set up again after every turn.
   const waiter = { type: 'command', command: `node "${waiterPath.replaceAll('\\', '/')}"`, asyncRewake: true, timeout: 86400 };
 
   const plan = {
     SessionStart: [waiter],
     UserPromptSubmit: [http(5)],
-    PreToolUse: [http(600)], // AskUserQuestion cevabı ofisten gelene kadar bekleyebilir
-    PermissionRequest: [http(600)], // izin ofisten verilene kadar bekleyebilir
+    PreToolUse: [http(600)], // may wait until the office answers AskUserQuestion
+    PermissionRequest: [http(600)], // may wait until the office grants the permission
     PostToolUse: [http(5)],
     SubagentStart: [http(5)],
     SubagentStop: [http(5)],

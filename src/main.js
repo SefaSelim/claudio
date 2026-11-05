@@ -22,7 +22,7 @@ function contentRect() {
 }
 const settle = () => invoke('settle_position', { content: contentRect() }).catch(() => {});
 
-// Taşıma tutamağı: the shell follows the cursor while the button is held (Windows' own
+// Move handle: the shell follows the cursor while the button is held (Windows' own
 // move loop would keep the tall window's top on screen and stop the office going up),
 // then slides the office back inside the screen if it went past an edge.
 const grip = document.getElementById('grip');
@@ -52,7 +52,7 @@ function applyMood() {
   const night = pref === 'auto' ? isEvening() : pref === 'night';
   scene.setMood(night);
   moodBtn.classList.toggle('night', night);
-  moodTip.textContent = `${night ? 'Akşam' : 'Gündüz'}${pref === 'auto' ? ' (otomatik)' : ''} · tıkla: ${night ? 'gündüz' : 'akşam'}`;
+  moodTip.textContent = `${night ? 'Evening' : 'Daytime'}${pref === 'auto' ? ' (auto)' : ''} · click: ${night ? 'daytime' : 'evening'}`;
 }
 moodBtn.addEventListener('click', () => {
   const night = moodBtn.classList.contains('night');

@@ -163,7 +163,7 @@ function boardFace() {
   g.fillStyle = '#7a6a5c';
   g.font = '600 26px "Segoe UI", sans-serif';
   g.textAlign = 'center';
-  ['Yapılacak', 'Sürüyor', 'Bitti'].forEach((t, i) => g.fillText(t, 85 + i * 171, 34));
+  ['To do', 'Doing', 'Done'].forEach((t, i) => g.fillText(t, 85 + i * 171, 34));
   const tex = new THREE.CanvasTexture(c);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;

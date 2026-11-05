@@ -179,7 +179,7 @@ export function errorLine(text) {
 
 function judgeOutput(sig, output) {
   const fail = FAIL_COUNT.exec(output);
-  if (fail && Number(fail[1]) > 0 && !/\b0\s+(failing|failed)/i.test(fail[0])) return { result: 'fail', detail: `${fail[1]} ${/error/i.test(fail[2]) ? 'hata' : 'başarısız'}` };
+  if (fail && Number(fail[1]) > 0 && !/\b0\s+(failing|failed)/i.test(fail[0])) return { result: 'fail', detail: `${fail[1]} ${/error/i.test(fail[2]) ? (Number(fail[1]) === 1 ? 'error' : 'errors') : 'failed'}` };
   if (FAIL_WORDS.test(output)) return { result: 'fail', detail: null };
   if ((sig.kind === 'test' || sig.kind === 'build') && PASS_COUNT.test(output)) return { result: 'ok', detail: null };
   return null;
