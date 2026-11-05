@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.13.1] - 2026-11-05
+
+Fixes found by a visual audit of every panel and state: a Library tab error, overlapping name tags and bubbles, request cards running off the window, and the web demo on small screens.
+
 ### Fixed
 
 - The Library tab of the team panel threw an error every time it opened, which left the rest of the panel without its click handlers.
@@ -234,7 +238,8 @@ First working prototype, covering roadmap phases 0 and 1. Commits before this re
 
 - The window position is no longer saved while the window is minimized.
 
-[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.13.0...HEAD
+[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.13.1...HEAD
+[0.13.1]: https://github.com/SefaSelim/claudio/compare/v0.13.0...v0.13.1
 [0.13.0]: https://github.com/SefaSelim/claudio/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/SefaSelim/claudio/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/SefaSelim/claudio/compare/v0.11.1...v0.12.0
