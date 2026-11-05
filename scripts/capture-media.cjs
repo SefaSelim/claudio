@@ -43,6 +43,9 @@ const ROOM = { x: CROP.x, y: 515, width: CROP.width, height: 285 };
 async function shot(p, name, clip = CROP) {
   const file = path.join(OUT, `${name}.png`);
   const raw = path.join(os.tmpdir(), `claudio-${name}-raw.png`);
+  // Move the pointer off the dock so no hover tooltip is left on the picture.
+  await p.mouse.move(2, 2);
+  await wait(250);
   await p.screenshot({ path: raw, clip });
   execFileSync('ffmpeg', ['-v', 'error', '-y', '-i', raw, '-vf', 'split[a][b];[a]palettegen=max_colors=256:stats_mode=full[p];[b][p]paletteuse=dither=sierra2_4a', file]);
   fs.rmSync(raw, { force: true });
