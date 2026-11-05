@@ -17,14 +17,14 @@ const MAX_BYTES = 15 * 1024 * 1024;
 
 // Quick commands. They are plain messages; the session decides what to do with them.
 const MAIN_CHIPS = [
-  { label: 'What are you doing?', text: 'What are you doing right now? Tell me in two sentences.' },
-  { label: 'Status summary', text: 'Summarize what has been done so far and the next step in three bullet points.' },
-  { label: 'Stop when done', text: 'Stop after the current step and wait for my instructions.' },
+  { label: 'Doing what?', text: 'What are you doing right now? Tell me in two sentences.' },
+  { label: 'Status', text: 'Summarize what has been done so far and the next step in three bullet points.' },
+  { label: 'Stop after this', text: 'Stop after the current step and wait for my instructions.' },
 ];
 const SUB_CHIPS = [
-  { label: 'What are you doing?', text: 'What are you doing right now? Tell me in one sentence.' },
-  { label: 'Narrow the scope', text: 'Narrow the scope, finish the most important part and report back.' },
-  { label: 'Wrap up and report', text: 'Wrap up what you have and report right away.' },
+  { label: 'Doing what?', text: 'What are you doing right now? Tell me in one sentence.' },
+  { label: 'Narrow it down', text: 'Narrow the scope, finish the most important part and report back.' },
+  { label: 'Wrap up', text: 'Wrap up what you have and report right away.' },
 ];
 
 const STATE_LABEL = {
@@ -67,8 +67,8 @@ const stateLabel = (agent) => {
   return STATE_LABEL[agent.state] ?? agent.state;
 };
 const WORKER_CHIPS = [
-  { label: 'What are you doing?', text: 'What are you doing right now? Tell me in two sentences.' },
-  { label: 'Status summary', text: 'Summarize what you have done so far and the next step in three bullet points.' },
+  { label: 'Doing what?', text: 'What are you doing right now? Tell me in two sentences.' },
+  { label: 'Status', text: 'Summarize what you have done so far and the next step in three bullet points.' },
   { label: 'Introduce yourself', text: 'Introduce yourself briefly: what are you an expert in, and what work can I give you?' },
 ];
 const MODES = {

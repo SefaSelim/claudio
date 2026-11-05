@@ -60,8 +60,8 @@ From top to bottom:
   - If Claude is idle, the office wakes it up.
 - **Images and files:** the paperclip button, pasting with Ctrl+V, or drag and drop. Claude opens
   the files itself.
-- **Quick commands:** the small buttons above the text box ("What are you doing?", "Status
-  summary", "Stop when done").
+- **Quick commands:** the small buttons above the text box ("Doing what?", "Status", "Stop
+  after this").
 - **The "You" character:** while attached, a blue felt character waits by the beanbag. When you
   send a message from the office, it carries it to Claude's or the subagent's desk and walks
   back. Switch it off in Settings with "Show me in the office".

@@ -386,3 +386,7 @@ html.demo, html.demo body { background: radial-gradient(1200px 700px at 20% 15%,
 .demo-links a:hover { text-decoration: underline; }
 .demo-x { position: absolute; right: 8px; top: 6px; border: 0; background: none; font-size: 18px; line-height: 1; color: #8a7f78; cursor: pointer; }
 @media (max-width: 760px) { .demo-note { left: 16px; top: 16px; } }
+
+/* The badge text is cut short rather than running under the alarm pill. */
+.modebadge span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.office.alarm .modebadge { max-width: 190px; }
