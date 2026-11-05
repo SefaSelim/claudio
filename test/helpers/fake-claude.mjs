@@ -25,6 +25,6 @@ if (/TOOL/.test(prompt)) {
 }
 if (/SLOW/.test(prompt)) await wait(1500);
 const firstLine = prompt.split('\n').find((l) => l.trim()) ?? '';
-const text = /Toplantı özeti/.test(prompt) ? '## Toplantı özeti\n- Karar: devam' : `${agent} dedi: ${firstLine.slice(0, 80)}`;
+const text = /Meeting summary/.test(prompt) ? '## Meeting summary\n- Decision: carry on' : `${agent} said: ${firstLine.slice(0, 80)}`;
 out({ type: 'assistant', message: { id: `m-${Date.now()}`, content: [{ type: 'text', text }] } });
 out({ type: 'result', subtype: 'success', is_error: false, result: text, num_turns: 1, duration_ms: 10, total_cost_usd: 0.001, usage: { input_tokens: 100, output_tokens: 20 } });

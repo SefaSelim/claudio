@@ -1,11 +1,11 @@
 [package]
-name = "claudio-ofis"
-version = "0.12.1"
-description = "Claude Code ajanlarını masaüstünde küçük bir ofiste gösterir"
+name = "claudio"
+version = "0.13.0"
+description = "Shows Claude Code agents in a small office on your desktop"
 edition = "2021"
 
 [lib]
-name = "claudio_ofis_lib"
+name = "claudio_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

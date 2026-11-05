@@ -6,25 +6,35 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-05
+
+An English interface, a live web demo, turn recaps, finished-session marks and an English README.
+
 ### Added
 
 - Turn recap: when a turn ends, the chat gets one quiet row with how long it took, how many tools ran, failures, subagents and the files Claude edited. Short turns that changed nothing stay silent.
-- Sessions the office is not attached to are marked "bitti · sıra sende" in the session list when their turn ends, so it is clear which terminal is waiting for you. Unlike permissions and questions this does not blink or send a notification.
+- Sessions the office is not attached to are marked "done · your turn" in the session list when their turn ends, so it is clear which terminal is waiting for you. Unlike permissions and questions this does not blink or send a notification.
 - A public web demo of the office, deployed to GitHub Pages: a scripted session plays on load, with links to replay it with the alarm, download the installer and read the source.
+
+### Changed
+
+- The whole interface is now in English: panels, cards, the dock, the tray menu, notifications and the demo. The app is called Claudio Office, and the office chat commands are `/status`, `/agents`, `/tasks`, `/meeting`, `/alarm`, `/all-clear`, `/clear` and `/help`.
+- Office messages, meeting prompts and the built-in general agent now speak to Claude in English, so Claude answers in English unless you write to it in another language.
+- Because the product name changed, the Windows installer sets the app up as Claudio Office next to an existing Claudio Ofis install. Uninstall Claudio Ofis from Windows settings, and switch Start with Windows back on if you used it.
 
 ### Fixed
 
 - An office message sent while Claude keeps hitting failing commands now lands after the next failed call instead of waiting for a successful one; office agents get the same.
-- The alarm pill no longer sits under the dock's move handle, where clicking "Kapat" could start dragging the office instead.
+- The alarm pill no longer sits under the dock's move handle, where clicking its close button could start dragging the office instead.
 - A hook body over 5 MB no longer leaves a request hanging in the bridge.
 
 ## [0.12.1] - 2026-10-19
 
-Fixes a library import that could stay on İndiriliyor… forever.
+Fixes a library import that could stay on Downloading… forever.
 
 ### Fixed
 
-- Importing a repository no longer shows İndiriliyor… forever when the bridge answers with an error or not at all; the error is shown and the button comes back after at most four minutes.
+- Importing a repository no longer shows Downloading… forever when the bridge answers with an error or not at all; the error is shown and the button comes back after at most four minutes.
 
 ## [0.12.0] - 2026-10-19
 
@@ -39,7 +49,7 @@ Office agents: up to five agents from a library, each in its own Claude Code ses
 ### Changed
 
 - Meetings with office agents are run by the office: each agent speaks in turn, read-only, in its own session; a working agent pauses and picks its work up again after the summary. Subagents no longer join meetings, which used to end their tasks.
-- The team panel's tabs are now Ofis, Kütüphane, Beceriler and Görevler; launching subagents through the main session moved out in favour of office agents.
+- The team panel's tabs are now Office, Library, Skills and Tasks; launching subagents through the main session moved out in favour of office agents.
 
 ## [0.11.1] - 2026-10-18
 
@@ -82,8 +92,8 @@ Acting out the turn: your own character walks messages over, and office chat com
 
 ### Added
 
-- "Sen": your own felt character waits by the beanbag and walks each message you send from the office to its recipient's desk; "Beni ofiste göster" in Settings turns it off.
-- Office chat commands: /durum, /ajanlar, /görevler, /toplantı, /alarm, /alarm-bitti, /temizle and /yardım run in the office instead of going to Claude.
+- "You": your own felt character waits by the beanbag and walks each message you send from the office to its recipient's desk; "Show me in the office" in Settings turns it off.
+- Office chat commands: /status, /agents, /tasks, /meeting, /alarm, /all-clear, /clear and /help run in the office instead of going to Claude.
 
 ## [0.9.0] - 2026-10-18
 
@@ -92,7 +102,7 @@ Comfort and distribution: a tray icon, diagnostics, keyboard shortcuts, an end-t
 ### Added
 
 - Tray icon: left click shows or hides the office; the menu toggles always on top, moves the office back to the corner and quits. Its tooltip says how many requests and sessions wait for you.
-- Tanılama in Settings: Node.js version, whether the Claude Code hooks are installed and current, the last hook seen, sessions found and the bridge version, with a one-click repair.
+- Diagnostics in Settings: Node.js version, whether the Claude Code hooks are installed and current, the last hook seen, sessions found and the bridge version, with a one-click repair.
 - Keyboard on request cards while the office has focus: Enter or Y allows, N denies, T leaves it to the terminal, 1-9 pick an answer; Esc closes the open panel.
 
 ## [0.8.0] - 2026-10-18
@@ -116,14 +126,14 @@ The truthful office: the project's agents, skills and task list, and Claude's ow
 
 - The bridge reads what Claude Code can use in the attached project (built-in, user, project and plugin agents, skills and slash commands) and the session's TaskCreate list, and follows the session when it changes directory.
 - Failed tool calls, API errors and context compaction now reach the office; the hook installer registers the new events and upgrades older installs on connect.
-- Ekip ve görevler panel: every agent, skill and command available in the project, with a one-line box to give one a task, and the session's task list with progress.
+- Team and tasks panel: every agent, skill and command available in the project, with a one-line box to give one a task, and the session's task list with progress.
 - The meeting-room whiteboard shows the real task list as post-its in To do, In progress and Done; a post-it flashes when it moves and clicking the board opens the list.
 - Claude dozes off 30 seconds after a turn ends, tidies the desk while the context is compacted and shows a red badge after an API error.
-- The Adımlar tab starts with a summary: calls per tool, failed calls with their error, run time, and a finished subagent's model and tokens.
+- The Steps tab starts with a summary: calls per tool, failed calls with their error, run time, and a finished subagent's model and tokens.
 
 ### Changed
 
-- Dock buttons are slightly smaller so the new Ekip button fits.
+- Dock buttons are slightly smaller so the new Team button fits.
 
 ## [0.6.0] - 2026-10-17
 
@@ -132,7 +142,7 @@ Roadmap phase 6: polish and packaging.
 ### Added
 
 - Other Claude Code sessions that wait for a permission or a question show up in the session list, light the session button and send a notification.
-- "Windows ile başlat" setting that opens the office when you sign in to Windows.
+- "Start with Windows" setting that opens the office when you sign in to Windows.
 
 ### Changed
 
@@ -146,7 +156,7 @@ Roadmap phase 5: meetings.
 
 ### Added
 
-- Meetings: a Toplantı button in the dock asks for a topic and the participants, then sends Claude a structured meeting prompt.
+- Meetings: a Meeting button in the dock asks for a topic and the participants, then sends Claude a structured meeting prompt.
 - Agents in a meeting walk to the meeting room, with Claude at the head of the table, and return to their desks when it ends.
 - The meeting panel shows the conversation, lets you interject, ends the meeting on request and keeps the summary on screen until you close it.
 - Meeting prompts appear as short lines in the main chat.
@@ -157,9 +167,9 @@ Roadmap phase 4: question and permission controls.
 
 ### Added
 
-- "Ajanlar bana soru sorsun" setting. When it is off, `AskUserQuestion` is declined with a note telling Claude to choose and explain, and the office shows that Claude decided on its own.
-- "Her yeni görevde sor" setting that asks Claude to check in with a short multiple-choice question before starting work sent from the office.
-- "Bu oturumda hep izin ver" on permission cards, which applies the rule Claude Code suggests for that tool.
+- "Let agents ask me questions" setting. When it is off, `AskUserQuestion` is declined with a note telling Claude to choose and explain, and the office shows that Claude decided on its own.
+- "Ask before every new task" setting that asks Claude to check in with a short multiple-choice question before starting work sent from the office.
+- "Always allow in this session" on permission cards, which applies the rule Claude Code suggests for that tool.
 - Bridge options are remembered by the office and restored when the bridge restarts.
 
 ## [0.3.0] - 2026-10-17
@@ -168,9 +178,9 @@ Roadmap phase 3: the agent card.
 
 ### Added
 
-- Agent panel with Sohbet and Adımlar tabs for every agent. Subagent chats come from their own transcripts, so the task Claude gave them and their replies show up.
+- Agent panel with Chat and Steps tabs for every agent. Subagent chats come from their own transcripts, so the task Claude gave them and their replies show up.
 - Typing indicator while an agent is working, showing its current step.
-- Quick commands under the chat ("Ne yapıyorsun?", "Durum özeti", "Bitince dur" for Claude; status, narrow-down and wrap-up commands for subagents).
+- Quick commands under the chat ("What are you doing?", "Status summary", "Stop when done" for Claude; status, narrow-down and wrap-up commands for subagents).
 - Queued messages say where they will land: at the next step while the session is busy, or by waking it when idle.
 - Windows notifications and an optional chime for permission prompts, questions and turns that ran longer than 20 seconds. Both can be switched off in the settings.
 - The `?scene-demo` page now plays a whole demo session through the real panels and cards.
@@ -201,7 +211,7 @@ First working prototype, covering roadmap phases 0 and 1. Commits before this re
   - live events arrive through user-level HTTP hooks,
   - chat comes from the session transcript.
 - One-click hook installer that backs up `~/.claude/settings.json`, adds only Claudio's hooks, and can remove them again.
-- Permission prompts and `AskUserQuestion` can be answered from the office, with a "Terminalde cevapla" option to hand the decision back to the terminal.
+- Permission prompts and `AskUserQuestion` can be answered from the office, with an "Answer in the terminal" option to hand the decision back to the terminal.
 - Messages from the office reach the session three ways:
   - mid-turn, through `PostToolUse` additional context,
   - at turn end, through a `Stop` hook block,
@@ -215,7 +225,8 @@ First working prototype, covering roadmap phases 0 and 1. Commits before this re
 
 - The window position is no longer saved while the window is minimized.
 
-[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/SefaSelim/claudio/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/SefaSelim/claudio/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/SefaSelim/claudio/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/SefaSelim/claudio/compare/v0.11.0...v0.11.1

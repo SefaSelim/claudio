@@ -8,9 +8,9 @@ import path from 'node:path';
 import { CLAUDE_DIR } from './sessions.mjs';
 
 export const BUILTIN_AGENTS = [
-  { name: 'general-purpose', description: 'Karmaşık, çok adımlı işler; arama, okuma ve düzenleme yapabilir.', source: 'builtin' },
-  { name: 'Explore', description: 'Kod tabanında hızlı, salt okunur arama.', source: 'builtin' },
-  { name: 'Plan', description: 'Uygulama planı çıkarır; dosya değiştirmez.', source: 'builtin' },
+  { name: 'general-purpose', description: 'Complex, multi-step work; can search, read and edit.', source: 'builtin' },
+  { name: 'Explore', description: 'Fast, read-only search through the codebase.', source: 'builtin' },
+  { name: 'Plan', description: 'Drafts an implementation plan; changes no files.', source: 'builtin' },
 ];
 
 /** Splits `---\nkey: value\n---\nbody`. Values may be quoted; lists stay strings. */

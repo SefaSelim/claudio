@@ -1,7 +1,7 @@
-/* Pencere düzeni (sağ alt köşeye yaslı, pencere 482×750):
+/* Window layout (anchored to the bottom-right corner, window 482×750):
    dock: right 8, bottom 8, 44×268
    office: right 8, bottom 8, 414×268 (the dock sits inside its right 52 px)
-   stack (istek kartları + panel): right 8, bottom 286, 364 genişlik */
+   stack (request cards + panel): right 8, bottom 286, 364 wide */
 :root {
   --ink: #2a211c;
   --bg: #fffdfa;
@@ -44,7 +44,7 @@ html, body {
 button { font: inherit; color: inherit; }
 code { font-family: var(--f-mono); font-size: 11.5px; }
 
-/* ---------- ofis ---------- */
+/* ---------- office ---------- */
 .office { position: absolute; right: 8px; bottom: 8px; width: 414px; height: 268px; clip-path: inset(0 0 0 0); transition: clip-path .45s var(--ease-out), opacity .45s var(--ease-out), transform .45s var(--ease-out); }
 /* Folds away to the right, leaving only the dock. */
 .office.collapsed { clip-path: inset(0 0 0 100%); opacity: 0; transform: translateX(24px); pointer-events: none; }
@@ -72,7 +72,7 @@ code { font-family: var(--f-mono); font-size: 11.5px; }
 .modebadge.swap { animation: flip .4s var(--spring); }
 @keyframes flip { from { transform: rotateX(90deg); opacity: 0; } }
 
-/* ---------- yan çubuk ---------- */
+/* ---------- dock ---------- */
 .dock { position: absolute; right: 8px; bottom: 8px; width: 44px; height: 268px; border-radius: 14px; background: transparent; border: 1px solid transparent; box-shadow: none; transition: background .3s, border-color .3s, box-shadow .3s; display: flex; flex-direction: column; align-items: center; justify-content: space-between; padding: 5px 0; }
 /* Transparent over the room; a soft halo keeps the icons readable on any background. */
 .dock .dk svg { filter: drop-shadow(0 0 1.5px var(--surface)) drop-shadow(0 0 3px var(--surface)); }
@@ -99,7 +99,7 @@ code { font-family: var(--f-mono); font-size: 11.5px; }
 .badge.bump { animation: bump .45s var(--spring); }
 @keyframes bump { 40% { transform: scale(1.45); } }
 
-/* ---------- panel ve kart yığını ---------- */
+/* ---------- panel and card stack ---------- */
 .stack { position: absolute; right: 8px; bottom: 286px; width: 364px; max-height: 456px; display: flex; flex-direction: column; justify-content: flex-end; gap: 8px; }
 .requests { display: flex; flex-direction: column; gap: 8px; flex: none; }
 #panel { min-height: 0; display: flex; flex-direction: column; }
@@ -153,7 +153,7 @@ code { font-family: var(--f-mono); font-size: 11.5px; }
 .link { border: 0; background: none; padding: 4px 2px; font-size: 11.5px; font-weight: 600; color: var(--muted); cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
 .link:hover { color: var(--accent); }
 
-/* oturum listesi */
+/* session list */
 .sesslist { display: grid; gap: 6px; }
 .sess { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 10px; border-radius: 11px; border: 1px solid var(--line); background: var(--surface); cursor: pointer; text-align: left; transition: border-color .15s, transform .12s var(--ease-out); }
 .sess:hover { border-color: var(--accent); transform: translateX(-2px); }
@@ -187,7 +187,7 @@ code { font-family: var(--f-mono); font-size: 11.5px; }
 .m.task { align-self: flex-start; background: var(--accent-soft); border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); border-bottom-left-radius: 4px; }
 .m .tl { display: block; font-size: 10px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--accent); margin-bottom: 2px; }
 
-/* sohbet ve adımlar */
+/* chat and steps */
 .m .dl { display: block; margin-top: 3px; font-size: 10px; opacity: .8; }
 .m.pending { opacity: .75; }
 .thread { display: flex; flex-direction: column; gap: 6px; }
@@ -227,7 +227,7 @@ code { font-family: var(--f-mono); font-size: 11.5px; }
 .mfiles img { max-width: 120px; max-height: 90px; border-radius: 8px; object-fit: cover; }
 .mfile { font-size: 11px; padding: 2px 7px; border-radius: 6px; background: rgba(255, 255, 255, .25); }
 
-/* izin ve soru kartları */
+/* permission and question cards */
 .qc { padding: 10px 12px; display: grid; gap: 7px; animation: qIn .42s var(--spring) both; animation-delay: calc(var(--i, 0) * 60ms); max-height: 300px; overflow: auto; }
 .qc.out { animation: qOut .22s var(--ease-in) both; }
 @keyframes qIn { from { opacity: 0; transform: translateX(26px) scale(.96); } }
@@ -386,3 +386,7 @@ html.demo, html.demo body { background: radial-gradient(1200px 700px at 20% 15%,
 .demo-links a:hover { text-decoration: underline; }
 .demo-x { position: absolute; right: 8px; top: 6px; border: 0; background: none; font-size: 18px; line-height: 1; color: #8a7f78; cursor: pointer; }
 @media (max-width: 760px) { .demo-note { left: 16px; top: 16px; } }
+
+/* The badge text is cut short rather than running under the alarm pill. */
+.modebadge span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.office.alarm .modebadge { max-width: 190px; }

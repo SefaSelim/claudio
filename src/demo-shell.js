@@ -12,7 +12,7 @@ export function mountDemoShell() {
   note.setAttribute('data-hit', '');
   note.innerHTML =
     `<b>Claudio · live demo</b>` +
-    `<p>A scripted Claude Code session plays in the office on the right: subagents walk in, a question and a permission card pop up, the main agent answers your messages. Click the characters and the dock buttons. The interface speaks Turkish.</p>` +
+    `<p>A scripted Claude Code session plays in the office on the right: subagents walk in, a question and a permission card pop up, the main agent answers your messages. Click the characters and the dock buttons.</p>` +
     `<p class="demo-links">` +
     `<a href="${alarm ? '?' : '?alarm'}">${alarm ? 'Replay without alarm' : 'Replay with failing tests (alarm)'}</a>` +
     `<a href="${REPO}/releases/latest">Download for Windows</a>` +

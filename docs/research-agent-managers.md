@@ -32,7 +32,7 @@ one click deep, no new runtime dependencies.
 | Idea | From | In Claudio |
 |---|---|---|
 | Turn timeline | Claude Visual, claude-pulse, Agent Monitor | One recap row when a turn ends: time, tools, failures, sub-agents, edited files. |
-| Working / waiting / idle per session | ccmonitor, Claude Radar | Other sessions get a quiet "bitti · sıra sende" mark when their turn ends. |
+| Working / waiting / idle per session | ccmonitor, Claude Radar | Other sessions get a quiet "done · your turn" mark when their turn ends. |
 | Try it in a browser | Pixel Agents' browser mode | A public demo on GitHub Pages, built from the existing scene demo. |
 
 ## Considered, left for later

@@ -34,19 +34,19 @@ existing panel, a single new panel, or the scene itself.
 
 | Claude Office feature | Claudio adaptation | Release |
 |---|---|---|
-| Inspector card (task, tools used, failed calls, tokens, model) | The agent card's **Adımlar** tab gets a summary row: tool counts, failed calls in red, run time, and model and tokens once a subagent finishes | 0.7 |
+| Inspector card (task, tools used, failed calls, tokens, model) | The agent card's **Steps** tab gets a summary row: tool counts, failed calls in red, run time, and model and tokens once a subagent finishes | 0.7 |
 | Available agent types per role | **Ekip** panel: every agent Claude Code can launch in the attached project (built-ins, `~/.claude/agents`, `<project>/.claude/agents`, enabled plugins), with a one-click "give this agent a task" that asks Claude to launch it | 0.7 |
-| Real task list on the whiteboard | The office whiteboard shows the session's `TaskCreate` list as post-its; clicking it opens a compact **Görevler** view inside the Ekip panel | 0.7 |
+| Real task list on the whiteboard | The office whiteboard shows the session's `TaskCreate` list as post-its; clicking it opens a compact **Tasks** view inside the Team panel | 0.7 |
 | Claude acts out the turn: types, naps when idle, raises a hand for you | Claude dozes (z z z) 30 s after a turn ends, raises a hand while a permission or question waits, sweeps the desk while compacting, wears a red badge after an API error | 0.7 |
 | Signals: deploy / build / test / push | The bridge classifies Bash commands; the character gets 🚀 / 🔨 / 🧪 / ⬆ while it runs and ✅ / ❌ when it ends, and the chat gets a one-line system row | 0.8 |
-| "Prod Is Down" incident mode | **Alarm**: a failed deploy, or three failed calls in five minutes, tints the room red with a beacon over the door; it clears on a green run, ten quiet minutes or "Alarmı kapat" | 0.8 |
+| "Prod Is Down" incident mode | **Alarm**: a failed deploy, or three failed calls in five minutes, tints the room red with a beacon over the door; it clears on a green run, ten quiet minutes or "Turn the alarm off" | 0.8 |
 | Payroll / electricity / memory meters | Context fill and tokens per minute, estimated from the transcript usage the bridge already reads, as one thin bar on the session badge. Cost is left out: it needs the status line, and Claudio does not price tokens | 0.8 |
 | Agent-to-agent messages | When an agent uses `SendMessage`, the sender walks to the recipient's desk and back with an envelope | 0.8 |
-| Health strip and `npm run doctor` | **Tanılama** block in Settings: Node version, hooks installed and current, last hook seen, sessions found, bridge version; the same checks as `npm run doctor` | 0.9 |
+| Health strip and `npm run doctor` | **Diagnostics** block in Settings: Node version, hooks installed and current, last hook seen, sessions found, bridge version; the same checks as `npm run doctor` | 0.9 |
 | Tray icon with badge, show/hide, always on top | Tray icon: show / hide, "always on top", reset position, quit; its tooltip says how many requests wait | 0.9 |
 | `y` / `n` on a permission card | Keyboard: `Enter` allows, `Esc` defers to the terminal on the front card while the office has focus | 0.9 |
 | CI and tagged installers | GitHub Actions: `node --test`, `vite build` and `cargo check` on every push; a tag builds the Windows installer and attaches it to a draft release | 0.9 |
-| Usage guide | `docs/KULLANIM.md`, a step-by-step guide in Turkish, the product language | 0.7 |
+| Usage guide | `docs/USAGE.md` (written in Turkish until 0.13, now in English), a step-by-step guide | 0.7 |
 
 ## Left out, on purpose
 
@@ -68,29 +68,29 @@ existing panel, a single new panel, or the scene itself.
   `StopFailure`, `PreCompact`, `PostCompact`; register the extra hooks.
 - Scene: doze, raised hand, compact sweep, error badge; whiteboard post-its.
 - UI: Ekip panel (dock button), tool summary on the agent card.
-- Docs: `docs/KULLANIM.md`.
+- Docs: `docs/USAGE.md`.
 
 ### 0.8.0 — signals and alarm
 
 - Bridge: Bash command classifier (`sidecar/signals.mjs`) with a test suite; usage reader for
   context and tokens per minute.
 - Scene: signal props over characters, alarm tint and beacon, envelope walks.
-- UI: signal rows in chat, meter bar on the badge, "Alarmı kapat".
+- UI: signal rows in chat, meter bar on the badge, "Turn the alarm off".
 
 ### 0.9.0 — comfort and distribution
 
 - Shell: tray icon, `get_diagnostics`.
-- UI: Tanılama block, keyboard shortcuts on cards.
+- UI: Diagnostics block, keyboard shortcuts on cards.
 - Repo: `npm test`, CI workflow, release workflow, issue templates.
 
 ### 0.10.0 — acting out the turn
 
 Added after 0.9, from the parts of Claude Office still missing:
 
-- A "Sen" character, the user, waits by the beanbag and walks each office message to its
+- A "You" character (originally "Sen"), the user, waits by the beanbag and walks each office message to its
   recipient's desk (Claude Office's boss handing over the prompt). It can be switched off.
-- Office-only chat commands: `/durum`, `/ajanlar`, `/görevler`, `/toplantı`, `/alarm`,
-  `/alarm-bitti`, `/temizle`, `/yardım` (Claude Office's `/status`, `/agents`,
+- Office-only chat commands: `/status`, `/agents`, `/tasks`, `/meeting`, `/alarm`,
+  `/all-clear`, `/clear`, `/help` (Claude Office's `/status`, `/agents`,
   `/incident`, `/all-clear`, `/help`).
 
 ### 1.0.0

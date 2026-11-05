@@ -473,8 +473,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "claudio-ofis"
-version = "0.12.1"
+name = "claudio"
+version = "0.13.0"
 dependencies = [
  "serde",
  "serde_json",

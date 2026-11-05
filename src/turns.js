@@ -49,22 +49,24 @@ export function createTurnTracker(now = () => Date.now()) {
 
 export function formatDuration(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
-  if (s < 60) return `${s} sn`;
+  if (s < 60) return `${s} s`;
   const m = Math.floor(s / 60);
-  if (m < 60) return s % 60 ? `${m} dk ${s % 60} sn` : `${m} dk`;
-  return `${Math.floor(m / 60)} sa ${m % 60} dk`;
+  if (m < 60) return s % 60 ? `${m} min ${s % 60} s` : `${m} min`;
+  return `${Math.floor(m / 60)} h ${m % 60} min`;
 }
 
 const base = (p) => String(p).split(/[\\/]/).pop();
 
-/** One Turkish line for the chat (the product language). */
+const plural = (n, word) => `${n} ${word}${n === 1 ? '' : 's'}`;
+
+/** One line for the chat. */
 export function formatRecap(r) {
-  const parts = [formatDuration(r.ms), `${r.tools} araç`];
-  if (r.failures) parts.push(`${r.failures} başarısız`);
-  if (r.agents) parts.push(`${r.agents} alt ajan`);
+  const parts = [formatDuration(r.ms), plural(r.tools, 'tool')];
+  if (r.failures) parts.push(`${r.failures} failed`);
+  if (r.agents) parts.push(plural(r.agents, 'subagent'));
   if (r.files.length) {
     const names = r.files.slice(0, 3).map(base).join(', ');
-    parts.push(`${r.files.length} dosya düzenlendi (${names}${r.files.length > 3 ? ', …' : ''})`);
+    parts.push(`${plural(r.files.length, 'file')} edited (${names}${r.files.length > 3 ? ', …' : ''})`);
   }
-  return `Tur bitti · ${parts.join(' · ')}`;
+  return `Turn done · ${parts.join(' · ')}`;
 }

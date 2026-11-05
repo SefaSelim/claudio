@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Ana ofis penceresi",
+  "description": "The main office window",
   "windows": ["main"],
   "permissions": ["core:default", "core:window:allow-start-dragging", "notification:default"]
 }

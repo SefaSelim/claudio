@@ -57,9 +57,9 @@ async function answerAll(p) {
     const card = document.querySelector('#requests .card');
     if (!card) return;
     if (card.classList.contains('perm')) return card.querySelector('[data-a="allow"]')?.click();
-    const option = [...card.querySelectorAll('button')].find((b) => b.textContent.includes('Sohbetin altında'));
+    const option = [...card.querySelectorAll('button')].find((b) => b.textContent.includes('Below the chat'));
     option?.click();
-    [...card.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Gönder')?.click();
+    [...card.querySelectorAll('button')].find((b) => b.textContent.trim() === 'Send')?.click();
   });
   await wait(700);
 }
@@ -105,7 +105,7 @@ async function record(browser, name, query, script, gifOpts) {
     if (!(await p.$('#panel .card'))) await clickOpen(p, 'chat');
     await wait(900);
     await shot(p, 'turn-recap');
-    await p.click('#panel button:has-text("Adımlar")').catch(() => {});
+    await p.click('#panel button:has-text("Steps")').catch(() => {});
     await wait(700);
     await shot(p, 'agent-steps');
     await clickOpen(p, 'session');
@@ -146,7 +146,7 @@ async function record(browser, name, query, script, gifOpts) {
     await wait(1200);
     // The panel re-renders while the demo runs, so address the topic box by id each time.
     await p.click('#meetTopic').catch(() => {});
-    await p.keyboard.type('Sürüm planı', { delay: 60 });
+    await p.keyboard.type('Release plan', { delay: 60 });
     await p.keyboard.press('Enter');
     await wait(16_000);
   }, { from: 27, length: 14, width: 420 });

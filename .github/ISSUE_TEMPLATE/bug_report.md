@@ -15,7 +15,7 @@ labels: "type: bug"
 
 **Diagnostics**
 
-Open Ayarlar → Tanılama and copy the lines here (Node.js, Claude Code bağlantısı, Son hook, Açık oturum, Köprü).
+Open Settings → Diagnostics and copy the lines here (Node.js, Claude Code hooks, Last hook, Running sessions, Bridge).
 
 **Environment**
 

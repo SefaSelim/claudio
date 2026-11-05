@@ -1,16 +1,16 @@
-// Claudio Ofis köprüsü. Tauri bu dosyayı `node` ile başlatır; stdin/stdout'ta satır satır JSON konuşur.
+// The Claudio Office bridge. Tauri starts this file with `node`; it speaks JSON lines on stdin/stdout.
 //
-// Claude Code oturumlarına API anahtarı olmadan bağlanır:
-//  - Oturum listesi: ~/.claude/sessions
-//  - Canlı olaylar: ~/.claude/settings.json'a eklenen http hook'ları bu köprüye POST eder
-//  - Sohbet: bağlı oturumun kayıt (transcript) dosyası izlenir
-//  - İzin ve AskUserQuestion: PermissionRequest / PreToolUse hook'u ofisten cevap gelene kadar bekletilir
-//  - Mesaj: tur sürerken PostToolUse additionalContext, tur biterken Stop "block",
-//    oturum boşta ise claudio-waiter.mjs (asyncRewake) ile iletilir
+// It attaches to Claude Code sessions without an API key:
+//  - Session list: ~/.claude/sessions
+//  - Live events: the http hooks added to ~/.claude/settings.json POST to this bridge
+//  - Chat: the attached session's transcript file is tailed
+//  - Permissions and AskUserQuestion: the PermissionRequest / PreToolUse hook is held until the office answers
+//  - Messages: delivered as PostToolUse additionalContext mid-turn, a Stop "block" at the end of a turn,
+//    or through claudio-waiter.mjs (asyncRewake) when the session is idle
 //
-// Gelen komutlar: status, attach {sessionId}, detach, send {text, target?}, answer {requestId, ...},
+// Commands in: status, attach {sessionId}, detach, send {text, target?}, answer {requestId, ...},
 //                 install_hooks, uninstall_hooks, set_option {answerInOffice}, roster
-// Giden olaylar:  ready, sessions, attached, detached, history, chat, hook, request,
+// Events out:  ready, sessions, attached, detached, history, chat, hook, request,
 //                 request_cancelled, queued, delivered, hooks_status, error, roster, tasks,
 //                 agent_stats, signal, usage
 
@@ -34,7 +34,7 @@ const FAKE = process.env.CLAUDIO_FAKE === '1';
 export const emit = (obj) => process.stdout.write(JSON.stringify(obj) + '\n');
 const log = (...parts) => process.stderr.write(parts.join(' ') + '\n');
 
-// ---------- belirteç ----------
+// ---------- token ----------
 function loadToken() {
   try {
     return JSON.parse(fs.readFileSync(tokenFile(), 'utf8')).token;
@@ -47,16 +47,16 @@ function loadToken() {
 }
 const TOKEN = loadToken();
 
-// ---------- durum ----------
+// ---------- state ----------
 // answerInOffice: hold permission prompts and questions for the office.
 // askQuestions: when false, AskUserQuestion is denied and Claude decides on its own.
 // askEveryTask: office messages ask Claude to check in with a short question before starting.
 const options = { answerInOffice: true, askQuestions: true, askEveryTask: false };
 
 const NO_QUESTIONS =
-  'Kullanıcı Claudio Ofis ayarlarında soru sorulmasını kapattı. Soru sorma; makul olanı seç, ' +
-  'kararını ve kısa nedenini yaz, sonra devam et.';
-const ASK_FIRST = '\n\n(Başlamadan önce, kararı kullanıcıya bağlı bir nokta varsa AskUserQuestion ile kısa, çoktan seçmeli bir soru sor.)';
+  'The user switched questions off in Claudio Office settings. Do not ask; pick the sensible option, ' +
+  'write down your decision and a short reason, then carry on.';
+const ASK_FIRST = '\n\n(Before you start, if any point depends on the user, ask a short multiple-choice question with AskUserQuestion.)';
 let attached = null; // { sessionId, tail, busy, subTails: Map<agentId, { tail, timer }> }
 const pending = new Map(); // requestId -> { resolve, kind, input }
 const queues = new Map(); // sessionId -> [{ id, text, target }]
@@ -67,7 +67,7 @@ const isAttached = (sessionId) => attached?.sessionId === sessionId;
 // Office agents: their own headless sessions, created and resumed by the bridge.
 const pool = new WorkerPool((evt) => emit(evt));
 
-// ---------- oturum listesi ----------
+// ---------- session list ----------
 // Sessions the office is not attached to still send hooks; remember which of them are
 // waiting for the user so the office can point at them.
 const waiting = new Map(); // sessionId -> 'permission' | 'question' | 'done'
@@ -94,13 +94,13 @@ function pollSessions() {
   }
 }
 
-// ---------- mesaj kuyruğu ----------
+// ---------- message queue ----------
 function queueFor(sessionId) {
   if (!queues.has(sessionId)) queues.set(sessionId, []);
   return queues.get(sessionId);
 }
 
-/** Hedefe uyan mesajları kuyruktan çıkarır. target null: ana ajan; string: o alt ajan. */
+/** Takes the messages for a target off the queue. target null: the main agent; a string: that subagent. */
 function takeMessages(sessionId, target) {
   const queue = queues.get(sessionId);
   if (!queue?.length) return [];
@@ -110,7 +110,7 @@ function takeMessages(sessionId, target) {
 }
 
 const formatMessages = (msgs) =>
-  `Kullanıcı Claudio Ofis'ten yazdı:\n${msgs.map((m) => `- ${m.text}`).join('\n')}`;
+  `The user wrote from Claudio Office:\n${msgs.map((m) => `- ${m.text}`).join('\n')}`;
 
 function markDelivered(msgs, via) {
   for (const m of msgs) emit({ type: 'delivered', id: m.id, via });
@@ -132,7 +132,7 @@ function wakeWaiter(sessionId) {
   let flushed = false;
   res.once('finish', () => {
     flushed = true;
-    markDelivered(msgs, 'uyandırma');
+    markDelivered(msgs, 'wake-up');
   });
   res.once('close', () => {
     if (!flushed) requeue(sessionId, msgs);
@@ -147,16 +147,16 @@ function requeue(sessionId, msgs) {
 
 const canReply = (res) => !res.writableEnded && !res.destroyed && res.socket?.writable !== false;
 
-/** Bekçiye cevap: { kind: 'message', text } | { kind: 'timeout' } | { kind: 'superseded' } */
+/** Reply to the waiter: { kind: 'message', text } | { kind: 'timeout' } | { kind: 'superseded' } */
 function replyWait(res, payload) {
   if (canReply(res)) res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(payload));
 }
 
-// ---------- izin ve soru istekleri ----------
+// ---------- permission and question requests ----------
 function holdRequest(kind, sessionId, body, res, agentId = body.agent_id ?? null) {
   const requestId = crypto.randomUUID();
   return new Promise((resolve) => {
-    const timer = setTimeout(() => finish(null, 'zaman aşımı'), 590_000);
+    const timer = setTimeout(() => finish(null, 'timed out'), 590_000);
     function finish(output, why) {
       if (!pending.has(requestId)) return;
       pending.delete(requestId);
@@ -165,8 +165,8 @@ function holdRequest(kind, sessionId, body, res, agentId = body.agent_id ?? null
       resolve(output ?? {});
     }
     pending.set(requestId, { finish, kind, input: body.tool_input, suggestions: body.permission_suggestions ?? null });
-    // Claude Code isteği kendisi bırakırsa (ör. terminalden cevaplandı) kartı kaldır.
-    res.on('close', () => finish(null, 'oturum isteği bıraktı'));
+    // If Claude Code drops the request itself (e.g. answered in the terminal), remove the card.
+    res.on('close', () => finish(null, 'the session dropped the request'));
     emit({
       type: 'request',
       requestId,
@@ -184,7 +184,7 @@ function holdRequest(kind, sessionId, body, res, agentId = body.agent_id ?? null
 function answer({ requestId, behavior, answers, mode, message }) {
   const entry = pending.get(requestId);
   if (!entry) return;
-  if (behavior === 'terminal') return entry.finish({}); // kararı terminale bırak
+  if (behavior === 'terminal') return entry.finish({}); // leave the decision to the terminal
   if (entry.kind === 'question') {
     return entry.finish(behavior === 'allow'
       ? { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...entry.input, answers } } }
@@ -195,7 +195,7 @@ function answer({ requestId, behavior, answers, mode, message }) {
   const decision = { behavior: always ? 'allow' : behavior };
   if (always && entry.suggestions?.length) decision.updatedPermissions = entry.suggestions;
   if (behavior === 'allow' && mode) decision.updatedPermissions = [{ type: 'setMode', mode, destination: 'session' }];
-  if (behavior === 'deny') decision.message = message || 'Kullanıcı Claudio Ofis\'ten reddetti.';
+  if (behavior === 'deny') decision.message = message || 'The user denied this from Claudio Office.';
   entry.finish({ hookSpecificOutput: { hookEventName: 'PermissionRequest', decision } });
 }
 
@@ -321,7 +321,7 @@ function pollUsage(force = false) {
   emit({ type: 'usage', sessionId: attached.sessionId, ...snap });
 }
 
-// ---------- hook'lar ----------
+// ---------- hooks ----------
 const pick = (b) => ({
   event: b.hook_event_name,
   sessionId: b.session_id,
@@ -339,7 +339,6 @@ const pick = (b) => ({
   task_subject: typeof b.task_subject === 'string' ? b.task_subject.slice(0, 140) : null,
 });
 
-/** Bir hook olayını işler ve Claude Code'a dönülecek JSON'u verir. */
 /** Hooks from an office agent's own session: requests go to the office, messages land. */
 function workerHook(worker, event, body, res) {
   const agentId = `w:${worker.id}`;
@@ -382,7 +381,7 @@ async function workerCommand(command) {
     case 'worker_add': {
       const cwd = workerCwd();
       const def = getDefinition(command.key, cwd);
-      if (!def) throw new Error('Bu ajan kütüphanede bulunamadı.');
+      if (!def) throw new Error('This agent is not in the library.');
       pool.add(def, { defKey: command.key, cwd });
       return;
     }
@@ -392,9 +391,9 @@ async function workerCommand(command) {
       return pool.stop(command.id);
     case 'worker_send': {
       const w = pool.get(command.id);
-      if (!w) throw new Error('Bu ajan artık ofiste değil.');
+      if (!w) throw new Error('This agent is no longer in the office.');
       const files = saveAttachments(`worker-${w.id}`, command.attachments ?? []);
-      const text = files.length ? `${command.text}\n\nEkli dosyalar (Read aracıyla açabilirsin):\n${files.map((f) => `- ${f}`).join('\n')}` : command.text;
+      const text = files.length ? `${command.text}\n\nAttached files (open them with the Read tool):\n${files.map((f) => `- ${f}`).join('\n')}` : command.text;
       return pool.send(command.id, text, command.clientId ?? null);
     }
     case 'library':
@@ -470,7 +469,7 @@ export async function handleHook(body, res) {
       // After a failed call too: a run of failing commands must not hold the user's message back.
       const msgs = takeMessages(sessionId, body.agent_id ?? null);
       if (!msgs.length) return {};
-      markDelivered(msgs, 'araç sonrası');
+      markDelivered(msgs, 'after a tool');
       return { hookSpecificOutput: { hookEventName: event, additionalContext: formatMessages(msgs) } };
     }
     case 'SubagentStop': {
@@ -480,7 +479,7 @@ export async function handleHook(body, res) {
         if (body.agent_id) attached.finished.add(body.agent_id);
         return {};
       }
-      markDelivered(msgs, 'alt ajan bitişi');
+      markDelivered(msgs, 'subagent finished');
       return { decision: 'block', reason: formatMessages(msgs) };
     }
     case 'Stop': {
@@ -489,18 +488,18 @@ export async function handleHook(body, res) {
         setBusy(false);
         return {};
       }
-      markDelivered(msgs, 'tur sonu');
+      markDelivered(msgs, 'end of turn');
       return { decision: 'block', reason: formatMessages(msgs) };
     }
     case 'SessionEnd':
-      detach('Oturum kapandı.');
+      detach('The session ended.');
       return {};
     default:
       return {};
   }
 }
 
-// ---------- bağlanma ----------
+// ---------- attaching ----------
 function attach(sessionId) {
   if (attached) detach();
   const transcript = knownTranscripts.get(sessionId) ?? findTranscript(sessionId);
@@ -514,7 +513,7 @@ function attach(sessionId) {
   pollTasks();
   pollUsage(true);
   if (FAKE) return startFake(sessionId);
-  if (!transcript) return emit({ type: 'history', items: [], note: 'Kayıt dosyası henüz yok; ilk mesajdan sonra görünür.' });
+  if (!transcript) return emit({ type: 'history', items: [], note: 'No transcript yet; it appears after the first message.' });
   const tail = new TranscriptTail(transcript, (item) => isAttached(sessionId) && emit({ type: 'chat', ...item }));
   attached.tail = tail;
   emit({ type: 'history', items: tail.start(40) });
@@ -532,7 +531,7 @@ function detach(why) {
   emit({ type: 'detached', sessionId, why: why ?? null });
 }
 
-// ---------- HTTP sunucusu ----------
+// ---------- HTTP server ----------
 const MAX_BODY = 5_000_000;
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -581,31 +580,31 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(404).end();
   } catch (err) {
     if (err?.tooLarge) return;
-    log('[köprü]', err.stack ?? err);
+    log('[bridge]', err.stack ?? err);
     if (!res.writableEnded) res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
   }
 });
 
-// Hook istemcileri bağlantıyı yeniden kullanabilir; kısa keep-alive süresi ECONNRESET yarışına yol açıyor.
+// Hook clients may reuse the connection; a short keep-alive leads to an ECONNRESET race.
 server.keepAliveTimeout = 65_000;
 server.headersTimeout = 66_000;
-server.on('error', (err) => emit({ type: 'error', message: `Köprü ${BRIDGE_PORT} portunu açamadı: ${err.message}` }));
+server.on('error', (err) => emit({ type: 'error', message: `The bridge could not open port ${BRIDGE_PORT}: ${err.message}` }));
 server.listen(BRIDGE_PORT, '127.0.0.1');
 
-// ---------- komutlar ----------
+// ---------- commands ----------
 let msgSeq = 0;
 const MAX_FILES = 6;
 const MAX_BYTES = 15 * 1024 * 1024;
 
-/** Ekleri diske yazar ve yollarını döndürür. Hook'lar yalnızca metin taşıyabildiği için Claude dosyaları Read ile açar. */
+/** Writes attachments to disk and returns their paths. Hooks carry only text, so Claude opens the files with Read. */
 function saveAttachments(sessionId, attachments) {
-  if (attachments.length > MAX_FILES) throw new Error(`En fazla ${MAX_FILES} dosya eklenebilir.`);
+  if (attachments.length > MAX_FILES) throw new Error(`You can attach at most ${MAX_FILES} files.`);
   const dir = path.join(attachmentsDir(), sessionId.slice(0, 8));
   fs.mkdirSync(dir, { recursive: true });
   return attachments.map((a, i) => {
     const data = Buffer.from(a.data ?? '', 'base64');
-    if (data.length > MAX_BYTES) throw new Error(`${a.name} 15 MB'tan büyük.`);
-    const safe = String(a.name || 'dosya').replace(/[^\p{L}\p{N}._-]+/gu, '_').slice(-80);
+    if (data.length > MAX_BYTES) throw new Error(`${a.name} is larger than 15 MB.`);
+    const safe = String(a.name || 'file').replace(/[^\p{L}\p{N}._-]+/gu, '_').slice(-80);
     const file = path.join(dir, `${Date.now()}-${i}-${safe}`);
     fs.writeFileSync(file, data);
     return file;
@@ -613,9 +612,9 @@ function saveAttachments(sessionId, attachments) {
 }
 
 function send({ text, target, attachments = [], clientId }) {
-  if (!attached) return emit({ type: 'error', message: 'Önce bir oturuma bağlan.' });
+  if (!attached) return emit({ type: 'error', message: 'Attach to a session first.' });
   if (target && attached.finished.has(target)) {
-    return emit({ type: 'error', message: "Bu alt ajan işini bitirdi; mesaj ona ulaşamaz. Claude'a yaz.", clientId });
+    return emit({ type: 'error', message: 'This subagent has finished, so the message cannot reach it. Write to Claude instead.', clientId });
   }
   let files = [];
   try {
@@ -624,7 +623,7 @@ function send({ text, target, attachments = [], clientId }) {
     return emit({ type: 'error', message: err.message, clientId });
   }
   let body = files.length
-    ? `${text}\n\nEkli dosyalar (Read aracıyla açabilirsin):\n${files.map((f) => `- ${f}`).join('\n')}`
+    ? `${text}\n\nAttached files (open them with the Read tool):\n${files.map((f) => `- ${f}`).join('\n')}`
     : text;
   // Only the main agent can ask the user: AskUserQuestion is not available inside subagents.
   if (options.askQuestions && options.askEveryTask && !target) body += ASK_FIRST;
@@ -664,7 +663,7 @@ function refreshHooks() {
   try {
     installHooks({ token: TOKEN, waiterPath });
   } catch (err) {
-    log('hook yenilenemedi', err.message);
+    log('could not refresh the hooks', err.message);
   }
 }
 
@@ -720,7 +719,7 @@ async function handle(command) {
       }
       return emit({ type: 'options', ...options });
     default:
-      return emit({ type: 'error', message: `Bilinmeyen komut: ${command.cmd}` });
+      return emit({ type: 'error', message: `Unknown command: ${command.cmd}` });
   }
 }
 
@@ -730,7 +729,7 @@ readline.createInterface({ input: process.stdin }).on('line', (line) => {
   try {
     command = JSON.parse(line);
   } catch {
-    return emit({ type: 'error', message: 'Geçersiz komut satırı.' });
+    return emit({ type: 'error', message: 'Invalid command line.' });
   }
   handle(command).catch((err) => emit({ type: 'error', message: String(err?.message ?? err) }));
 });
@@ -740,7 +739,7 @@ process.stdin.on('end', () => {
   process.exit(0);
 });
 
-// ---------- demo modu ----------
+// ---------- demo mode ----------
 let fakeModule = null;
 function fakeSessions() {
   return fakeModule?.sessions() ?? [];

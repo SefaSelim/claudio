@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 
-// Rust tarafı imleci yoklar ve sadece bu alanların üstündeyken pencereyi tıklanabilir yapar.
-// Burada [data-hit] öğelerinin kutularını ona bildiriyoruz. An element can also register a
+// The Rust side polls the cursor and makes the window clickable only over these areas.
+// Here we report the boxes of the [data-hit] elements to it. An element can also register a
 // shape: a polygon in its own CSS px, so only that part of its box catches clicks.
 const inTauri = '__TAURI_INTERNALS__' in window;
 const shapes = new WeakMap(); // element -> () => [[x, y], ...]
@@ -45,7 +45,7 @@ export function watchHitRegions() {
   new MutationObserver(() => { observeAll(); reportHitRegions(); })
     .observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['data-hit', 'hidden', 'class'] });
   window.addEventListener('resize', reportHitRegions);
-  // Animasyonlar bittiğinde kutular yerine oturur; seyrek bir yedek kontrol yeterli.
+  // Boxes settle once animations end; a sparse fallback check is enough.
   setInterval(reportHitRegions, 1000);
   reportHitRegions();
 }

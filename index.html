@@ -1,13 +1,13 @@
 <!doctype html>
-<html lang="tr">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Claudio Ofis</title>
+  <title>Claudio Office</title>
   <link rel="stylesheet" href="/src/style.css">
 </head>
 <body>
-  <!-- Pencere tamamen şeffaf. Sadece data-hit taşıyan öğeler tıklanır, gerisi alttaki pencereye geçer. -->
+  <!-- The window is fully transparent. Only data-hit elements catch clicks; the rest go to the window below. -->
   <div class="stack" id="stack">
     <div class="requests" id="requests"></div>
     <div id="panel"></div>
@@ -16,57 +16,57 @@
   <div class="office" id="office" data-hit>
     <canvas id="scene"></canvas>
     <div class="tags" id="tags"></div>
-    <div class="modebadge" id="modebadge"><i class="dot"></i><span>Oturum kapalı</span></div>
-    <button class="collapse-btn" id="collapseBtn" data-hit aria-label="Ofisi küçült" title="Ofisi küçült">
+    <div class="modebadge" id="modebadge"><i class="dot"></i><span>Not connected</span></div>
+    <button class="collapse-btn" id="collapseBtn" data-hit aria-label="Fold the office away" title="Fold the office away">
       <svg viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3l5 5-5 5"/></svg>
     </button>
     <div class="meterbar" id="meter" data-hit hidden><span class="mb"><i></i></span><span class="mt"></span></div>
-    <button class="alarmpill" id="alarmPill" hidden><i></i><span>Alarm</span><b>Kapat</b></button>
+    <button class="alarmpill" id="alarmPill" hidden><i></i><span>Alarm</span><b>Turn off</b></button>
   </div>
 
-  <button class="reopen-btn" id="reopenBtn" aria-label="Ofisi aç" title="Ofisi aç" hidden>
+  <button class="reopen-btn" id="reopenBtn" aria-label="Open the office" title="Open the office" hidden>
     <svg viewBox="0 0 10 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3L2 8l5 5"/></svg>
   </button>
 
   <nav class="dock" id="dock" data-hit>
     <div class="grp">
-      <button class="dk grip" id="grip" aria-label="Ofisi taşı">
+      <button class="dk grip" id="grip" aria-label="Move the office">
         <svg viewBox="0 0 16 16" fill="currentColor"><circle cx="6" cy="4" r="1.3"/><circle cx="10" cy="4" r="1.3"/><circle cx="6" cy="8" r="1.3"/><circle cx="10" cy="8" r="1.3"/><circle cx="6" cy="12" r="1.3"/><circle cx="10" cy="12" r="1.3"/></svg>
-        <span class="tip">Sürükle: taşı · Çift tık: sağ alta dön</span>
+        <span class="tip">Drag: move · Double-click: back to the corner</span>
       </button>
-      <button class="dk" data-open="session" aria-label="Oturum">
+      <button class="dk" data-open="session" aria-label="Sessions">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><path d="M6.5 9.5l3-3M7 4.5l1-1a2.8 2.8 0 014 4l-1 1M9 11.5l-1 1a2.8 2.8 0 01-4-4l1-1"/></svg>
         <i class="condot"></i>
-        <span class="tip">Oturum</span>
+        <span class="tip">Sessions</span>
       </button>
-      <button class="dk" data-open="chat" aria-label="Claude'a yaz">
+      <button class="dk" data-open="chat" aria-label="Write to Claude">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M2.5 3.5h11v7h-6l-3 2.5v-2.5h-2z"/></svg>
         <span class="badge" hidden></span>
-        <span class="tip">Claude'a yaz</span>
+        <span class="tip">Write to Claude</span>
       </button>
-      <button class="dk" data-open="meeting" aria-label="Toplantı">
+      <button class="dk" data-open="meeting" aria-label="Meeting">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="5" cy="5.5" r="2"/><circle cx="11" cy="5.5" r="2"/><path d="M1.5 13c.5-2.2 2-3.3 3.5-3.3S8 10.8 8.5 13M7.5 13c.5-2.2 2-3.3 3.5-3.3s3 1.1 3.5 3.3"/></svg>
         <i class="livedot" hidden></i>
-        <span class="tip">Toplantı</span>
+        <span class="tip">Meeting</span>
       </button>
-      <button class="dk" data-open="team" aria-label="Ekip ve görevler">
+      <button class="dk" data-open="team" aria-label="Team and tasks">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"><rect x="2" y="2.5" width="5" height="5" rx="1.2"/><rect x="9" y="2.5" width="5" height="5" rx="1.2"/><rect x="2" y="9.5" width="5" height="4" rx="1.2"/><path d="M9.5 11.5l1.4 1.4 2.6-2.8"/></svg>
-        <span class="tip">Ekip ve görevler</span>
+        <span class="tip">Team and tasks</span>
       </button>
     </div>
     <div class="grp">
-      <button class="dk mood" id="moodBtn" aria-label="Işık">
+      <button class="dk mood" id="moodBtn" aria-label="Lighting">
         <svg class="moon" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M13 9.5A5.5 5.5 0 116.5 3a4.5 4.5 0 006.5 6.5z"/></svg>
         <svg class="sun" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="8" cy="8" r="3"/><path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.4 3.4l1 1M11.6 11.6l1 1M3.4 12.6l1-1M11.6 4.4l1-1"/></svg>
-        <span class="tip" id="moodTip">Işık</span>
+        <span class="tip" id="moodTip">Lighting</span>
       </button>
-      <button class="dk gear" data-open="settings" aria-label="Ayarlar">
+      <button class="dk gear" data-open="settings" aria-label="Settings">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="8" cy="8" r="2.2"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4"/></svg>
-        <span class="tip">Ayarlar</span>
+        <span class="tip">Settings</span>
       </button>
-      <button class="dk" id="quit" aria-label="Kapat">
+      <button class="dk" id="quit" aria-label="Quit">
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 4l8 8M12 4l-8 8"/></svg>
-        <span class="tip">Ofisi kapat</span>
+        <span class="tip">Quit the office</span>
       </button>
     </div>
   </nav>

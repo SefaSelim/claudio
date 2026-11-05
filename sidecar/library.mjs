@@ -13,14 +13,14 @@ import { CLAUDE_DIR } from './sessions.mjs';
 import { parseFrontmatter } from './roster.mjs';
 
 export const RECOMMENDED = [
-  { url: 'https://github.com/Donchitos/Claude-Code-Game-Studios', label: 'Claude Code Game Studios', note: 'Bir oyun stüdyosunun ekibi: yönetmenler, programcılar, tasarımcılar, test ve yayın uzmanları.' },
+  { url: 'https://github.com/Donchitos/Claude-Code-Game-Studios', label: 'Claude Code Game Studios', note: "A game studio's team: directors, programmers, designers, QA and release specialists." },
 ];
 
 const GENERAL = {
-  key: 'builtin/genel',
-  name: 'genel',
-  description: 'Her işe bakan genel bir asistan: kod okur, yazar, komut çalıştırır.',
-  prompt: 'Sen Claudio Ofis\'te çalışan genel amaçlı bir yazılım ajanısın. Kullanıcının verdiği işi dikkatle yap, ne yaptığını kısaca özetle. Türkçe konuş.',
+  key: 'builtin/general',
+  name: 'general',
+  description: 'A general assistant for any job: reads and writes code, runs commands.',
+  prompt: 'You are a general-purpose software agent working in Claudio Office. Do the job the user gives you carefully and summarize briefly what you did.',
   source: 'builtin',
 };
 
@@ -54,7 +54,7 @@ export function parseRepoUrl(url) {
 
 const git = (args, cwd) => new Promise((resolve, reject) => {
   execFile('git', args, { cwd, timeout: 180_000, windowsHide: true }, (err, stdout, stderr) => {
-    if (err) reject(new Error(err.code === 'ENOENT' ? 'Git bulunamadı. Repo içe aktarmak için Git kurulu olmalı.' : (stderr || err.message).trim().split('\n').pop()));
+    if (err) reject(new Error(err.code === 'ENOENT' ? 'Git not found. Importing a repository needs Git installed.' : (stderr || err.message).trim().split('\n').pop()));
     else resolve(stdout);
   });
 });
@@ -62,7 +62,7 @@ const git = (args, cwd) => new Promise((resolve, reject) => {
 /** Clone (or update) only the agent folders of a repository. */
 export async function importRepo(url) {
   const repo = parseRepoUrl(url);
-  if (!repo) throw new Error('Geçerli bir GitHub adresi gir (https://github.com/sahip/repo).');
+  if (!repo) throw new Error('Enter a valid GitHub address (https://github.com/owner/repo).');
   const dir = path.join(libDir(), repo.id);
   if (fs.existsSync(path.join(dir, '.git'))) {
     await git(['pull', '--depth', '1', '--ff-only'], dir).catch(() => {});
@@ -75,7 +75,7 @@ export async function importRepo(url) {
   const count = agentsInRepo(dir, repo.id).length;
   if (!count) {
     fs.rmSync(dir, { recursive: true, force: true });
-    throw new Error('Bu repoda .claude/agents ya da agents klasöründe ajan bulunamadı.');
+    throw new Error('No agents found in .claude/agents or agents in this repository.');
   }
   const sources = readSources().filter((s) => s.id !== repo.id);
   sources.push({ id: repo.id, url: repo.url, label: repo.label, importedAt: Date.now(), count });
@@ -160,14 +160,14 @@ function pluginAgentDirs() {
 /** Everything that can be brought into the office, grouped by source. */
 export function listLibrary(cwd) {
   const sources = [];
-  sources.push({ id: 'builtin', label: 'Yerleşik', kind: 'builtin', agents: [{ ...GENERAL, file: null }] });
+  sources.push({ id: 'builtin', label: 'Built-in', kind: 'builtin', agents: [{ ...GENERAL, file: null }] });
   const project = projectAgentDirs(cwd).flatMap((d) => agentsIn(d, 'project', 'project'));
-  if (project.length) sources.push({ id: 'project', label: 'Bu proje', kind: 'project', agents: project });
+  if (project.length) sources.push({ id: 'project', label: 'This project', kind: 'project', agents: project });
   const user = agentsIn(path.join(CLAUDE_DIR, 'agents'), 'user', 'user');
-  if (user.length) sources.push({ id: 'user', label: 'Kendi ajanların', kind: 'user', agents: user });
+  if (user.length) sources.push({ id: 'user', label: 'Your agents', kind: 'user', agents: user });
   for (const p of pluginAgentDirs()) {
     const agents = agentsIn(p.dir, `plugin:${p.name}`, `plugin:${p.name}`);
-    if (agents.length) sources.push({ id: `plugin:${p.name}`, label: `Eklenti · ${p.name}`, kind: 'plugin', agents });
+    if (agents.length) sources.push({ id: `plugin:${p.name}`, label: `Plugin · ${p.name}`, kind: 'plugin', agents });
   }
   for (const s of readSources()) {
     const agents = agentsInRepo(path.join(libDir(), s.id), s.id);
@@ -182,7 +182,8 @@ export function listLibrary(cwd) {
 
 /** The full definition (with its prompt) of one library entry. */
 export function getDefinition(key, cwd) {
-  if (key === GENERAL.key) return { ...GENERAL };
+  // 'builtin/genel' is the key office agents added before 0.13 were saved with.
+  if (key === GENERAL.key || key === 'builtin/genel') return { ...GENERAL };
   for (const s of listSourcesWithFiles(cwd)) {
     const a = s.find((x) => x.key === key);
     if (!a) continue;

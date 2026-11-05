@@ -1,7 +1,7 @@
-// Claude Code'un asyncRewake hook'u olarak çalışır (SessionStart ve Stop'ta yeniden kurulur).
-// Ofisten bu oturuma bir mesaj gelene kadar köprüyü bekler. Mesaj gelince stderr'e yazıp
-// 2 koduyla çıkar: Claude Code, oturum boşta olsa bile Claude'u uyandırır ve metni ona gösterir.
-// Ofis kapalıysa ya da daha yeni bir bekçi geldiyse sessizce 0 ile çıkar.
+// Runs as Claude Code's asyncRewake hook (set up again at SessionStart and Stop).
+// Waits on the bridge until the office has a message for this session. Then it writes the
+// message to stderr and exits with code 2: Claude Code wakes Claude even if the session is idle
+// and shows it the text. If the office is closed or a newer waiter took over, it exits 0 quietly.
 
 import fs from 'node:fs';
 import http from 'node:http';
@@ -33,7 +33,7 @@ let token = '';
 try {
   token = JSON.parse(fs.readFileSync(tokenFile(), 'utf8')).token;
 } catch {
-  process.exit(0); // ofis hiç kurulmamış
+  process.exit(0); // the office was never set up
 }
 if (!sessionId) process.exit(0);
 
@@ -43,12 +43,12 @@ for (;;) {
   try {
     reply = status === 200 ? JSON.parse(body) : {};
   } catch {
-    // bozuk cevap: çık
+    // malformed reply: quit
   }
   if (reply.kind === 'message' && reply.text) {
     process.stderr.write(reply.text);
     process.exit(2);
   }
-  // "timeout": tekrar bekle. "superseded", 401 ya da bağlantı hatası (ofis kapalı): çık.
+  // "timeout": wait again. "superseded", 401 or a connection error (office closed): quit.
   if (reply.kind !== 'timeout') process.exit(0);
 }

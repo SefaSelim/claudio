@@ -18,14 +18,14 @@ pub struct Tray {
 const TRAY_ID: &str = "main";
 
 pub fn create(app: &AppHandle) -> tauri::Result<()> {
-    let toggle = MenuItem::with_id(app, "toggle", "Ofisi gizle", true, None::<&str>)?;
-    let on_top = CheckMenuItem::with_id(app, "on_top", "Her zaman üstte", true, true, None::<&str>)?;
-    let reset = MenuItem::with_id(app, "reset", "Sağ alta taşı", true, None::<&str>)?;
-    let quit = MenuItem::with_id(app, "quit", "Ofisi kapat", true, None::<&str>)?;
+    let toggle = MenuItem::with_id(app, "toggle", "Hide the office", true, None::<&str>)?;
+    let on_top = CheckMenuItem::with_id(app, "on_top", "Always on top", true, true, None::<&str>)?;
+    let reset = MenuItem::with_id(app, "reset", "Move to the bottom-right corner", true, None::<&str>)?;
+    let quit = MenuItem::with_id(app, "quit", "Quit the office", true, None::<&str>)?;
     let menu = Menu::with_items(app, &[&toggle, &on_top, &reset, &PredefinedMenuItem::separator(app)?, &quit])?;
 
     let mut builder = TrayIconBuilder::with_id(TRAY_ID)
-        .tooltip("Claudio Ofis")
+        .tooltip("Claudio Office")
         .menu(&menu)
         .show_menu_on_left_click(false)
         .on_menu_event(|app, event| match event.id().as_ref() {
@@ -73,7 +73,7 @@ fn toggle_window(app: &AppHandle) {
 fn sync_toggle(app: &AppHandle) {
     let (Some(win), Some(tray)) = (app.get_webview_window("main"), app.try_state::<Tray>()) else { return };
     let visible = win.is_visible().unwrap_or(true);
-    let _ = tray.toggle.set_text(if visible { "Ofisi gizle" } else { "Ofisi göster" });
+    let _ = tray.toggle.set_text(if visible { "Hide the office" } else { "Show the office" });
 }
 
 /// The office reports what waits for the user; the tray tooltip says it.
@@ -85,7 +85,7 @@ pub fn set_status(app: &AppHandle, text: &str) {
     }
     *last = text.to_string();
     if let Some(icon) = app.tray_by_id(TRAY_ID) {
-        let tip = if text.is_empty() { "Claudio Ofis".to_string() } else { format!("Claudio Ofis · {text}") };
+        let tip = if text.is_empty() { "Claudio Office".to_string() } else { format!("Claudio Office · {text}") };
         let _ = icon.set_tooltip(Some(tip));
     }
 }
