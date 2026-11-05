@@ -6,6 +6,15 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Fixed
+
+- The Library tab of the team panel threw an error every time it opened, which left the rest of the panel without its click handlers.
+- Name tags of characters at neighbouring desks no longer sit on top of each other, and a tag that would slide under the session badge moves below it instead.
+- Speech bubbles stay readable: one that would leave the room or cover the badge, the meter, the alarm pill, another name or another bubble opens below the name instead, or waits out its few seconds hidden when there is no free spot. Long words wrap inside the bubble.
+- A long question card and a permission card no longer run off the top of the window together; the front one shows alone with a "+1 more request" note until it is answered.
+- Closing a meeting summary closes the panel instead of opening an empty meeting setup.
+- Web demo: on narrow screens the note folds into a small "Demo · info" button so it no longer covers the office's panels, and on phones the page zooms out so the whole office fits.
+
 ## [0.13.0] - 2026-11-05
 
 An English interface, a live web demo, turn recaps, finished-session marks and an English README.
