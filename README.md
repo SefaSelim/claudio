@@ -14,7 +14,7 @@ any agent without switching to the terminal. No API key needed.
 ![Platform](https://img.shields.io/badge/platform-Windows-0078d4)
 ![Tauri 2](https://img.shields.io/badge/Tauri-2-24c8db)
 
-### [▶ Try the live demo](https://sefaselim.github.io/claudio/) · [⬇ Download for Windows](https://github.com/SefaSelim/claudio/releases/latest) · [📖 Turkish user guide](docs/KULLANIM.md)
+### [▶ Try the live demo](https://sefaselim.github.io/claudio/) · [⬇ Download for Windows](https://github.com/SefaSelim/claudio/releases/latest) · [📖 User guide](docs/USAGE.md)
 
 <img src="docs/media/hero.gif" alt="The office in the corner of the screen: Claude at its desk, two subagents walking in and working, a chat card above" width="420">
 
@@ -23,8 +23,6 @@ any agent without switching to the terminal. No API key needed.
 > **About the demo:** the web demo runs a pre-written session in your browser. It doesn't
 > connect to any AI, call an API or send anything anywhere. The desktop app doesn't use an
 > API key either: it attaches to the Claude Code sessions you already run on your own machine.
->
-> The interface is in Turkish, the product's language. This README and the code are in English.
 
 ---
 
@@ -65,7 +63,7 @@ and you answer only when something needs you.
 - **Tool calls become animations** and speech bubbles: typing, reading, running commands.
   Claude dozes off when idle, raises a hand when it needs you and tidies its desk while it
   compacts the context.
-- **"Sen" (you)** is a blue felt character. It carries every message you send to the right desk.
+- **"You"** is a blue felt character. It carries every message you send to the right desk.
 - **Day and evening lighting** follows the clock, or you can set it yourself.
 - **Fold it away:** an arrow on the left folds the office into the dock. The scene stops
   rendering while it's folded.
@@ -90,15 +88,15 @@ and you answer only when something needs you.
 
 <img src="docs/media/turn-recap.png" alt="Claude's agent card: chat history, a turn recap row and quick commands" width="340" align="right">
 
-- Click a character to open its card, with a **Chat** tab (Sohbet) and a **Steps** tab (Adımlar).
+- Click a character to open its card, with a **Chat** tab and a **Steps** tab.
 - Write to the **main agent or one specific subagent**. You can attach files and images with
   <kbd>Ctrl</kbd>+<kbd>V</kbd> or drag and drop.
 - Messages are delivered at the next tool call, at the end of the turn, or by **waking an idle
   session**. Each message shows how it was delivered.
 - **Turn recap:** when a turn ends, one line shows how long it took, how many tools ran, the
   failures, the subagents and the files that were edited.
-- **Office commands:** `/durum` (status), `/ajanlar` (agents), `/görevler` (tasks),
-  `/toplantı` (meeting), `/alarm`, `/temizle` (clear), `/yardım` (help).
+- **Office commands:** `/status`, `/agents`, `/tasks`, `/meeting`, `/alarm`, `/all-clear`,
+  `/clear` and `/help`.
 
 <br clear="right">
 
@@ -135,7 +133,7 @@ and you answer only when something needs you.
 | Sessions | Team & tasks | Settings |
 |:-:|:-:|:-:|
 | <img src="docs/media/sessions.png" alt="Session list with attached, waiting and finished sessions" width="260"> | <img src="docs/media/team.png" alt="Team panel with Office, Library, Skills and Tasks tabs" width="260"> | <img src="docs/media/settings.png" alt="Settings: answer in the office, questions, notifications" width="260"> |
-| Every running session. Sessions waiting for you, or finished and waiting for your turn ("bitti · sıra sende"), are marked. | Office agents, the agent library, skills, and the session's task list. The task list also appears as post-its on the whiteboard. | Answering in the office, question behaviour, Windows notifications, sound, start with Windows, and a **diagnostics** block that checks every step of the setup. |
+| Every running session. Sessions waiting for you, or finished and waiting for your turn ("done · your turn"), are marked. | Office agents, the agent library, skills, and the session's task list. The task list also appears as post-its on the whiteboard. | Answering in the office, question behaviour, Windows notifications, sound, start with Windows, and a **diagnostics** block that checks every step of the setup. |
 
 <div align="center">
 <img src="docs/media/evening.png" alt="The office in evening light" width="500">
@@ -147,7 +145,7 @@ and you answer only when something needs you.
 ### Windows installer
 
 1. Install [Node.js 20+](https://nodejs.org). The bridge runs on Node.
-2. Download `Claudio Ofis_<version>_x64-setup.exe` from
+2. Download `Claudio Office_<version>_x64-setup.exe` from
    [Releases](https://github.com/SefaSelim/claudio/releases) and run it. If SmartScreen says
    "unknown publisher", click **More info → Run anyway**.
 3. The office opens in the bottom-right corner, always on top. It doesn't appear in the taskbar;
@@ -171,12 +169,11 @@ the dock.
 
 ## Connect to Claude Code
 
-1. Open the **session** panel (the chain icon) and press **Bağlantıyı kur** (set up the
-   connection). Claudio backs up `~/.claude/settings.json` to `settings.json.claudio-backup`
+1. Open the **session** panel (the chain icon) and press **Set up the connection**. Claudio backs up `~/.claude/settings.json` to `settings.json.claudio-backup`
    and adds **only its own hooks**. Running sessions pick them up without a restart.
 2. Start `claude` in a terminal, or use one that's already running, then click it in the list.
 
-While the office is closed, the hooks don't block anything. **Kaldır** (remove) deletes only
+While the office is closed, the hooks don't block anything. **Remove** deletes only
 Claudio's hooks and leaves yours alone.
 
 ## How it works
@@ -202,8 +199,7 @@ flowchart LR
 - **Delivering messages:** Claude Code has no official way to inject a user message, so office
   messages go in as `additionalContext` after the next tool call (failed calls included), as a
   `Stop` hook *block* at the end of a turn, or through the `asyncRewake` waiter when the
-  session is idle. Claude sees them as *"Kullanıcı Claudio Ofis'ten yazdı"* ("the user wrote
-  from Claudio Office").
+  session is idle. Claude sees them as *"The user wrote from Claudio Office"*.
 - **Office agents** are headless `claude -p` sessions created and resumed by the bridge with
   `--session-id` / `--resume`.
 

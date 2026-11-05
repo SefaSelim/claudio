@@ -8,8 +8,8 @@ These rules apply to every session that works in this repository.
 
 - Talk to the user in Turkish.
 - Write every git and GitHub artifact in English: commit messages, tag messages, CHANGELOG entries, release notes, issue and PR text.
-- Write new code comments in English. Don't mass-translate existing Turkish comments unless asked.
-- UI strings stay Turkish. That is the product language.
+- Write code comments in English.
+- UI strings, docs, demo data and the bridge's prompts to Claude are English. That is the product language.
 
 ## Project layout
 
