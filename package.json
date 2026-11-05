@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test": "node --test test/"
+    "test": "node scripts/run-tests.mjs",
+    "build:demo": "vite build --mode demo --base=./"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

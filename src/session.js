@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { createTurnTracker, formatRecap } from './turns.js';
 
 // Köprüden gelen olayları ofis durumuna çevirir.
 // Ajan durumu hook'lardan, sohbet bağlı oturumun kayıt dosyasından, kartlar izin/soru isteklerinden gelir.
@@ -450,8 +451,12 @@ function scheduleDoze() {
   }, DOZE_AFTER);
 }
 
+// One recap row per turn: how long it took, how many tools, failures and edited files.
+const turns = createTurnTracker();
+
 function onHook(evt) {
   const id = evt.agent_id ?? 'main';
+  turns.hook(evt);
   if (evt.permission_mode && evt.permission_mode !== state.mode) {
     state.mode = evt.permission_mode;
     notify('status');
@@ -539,6 +544,7 @@ function onHook(evt) {
 }
 
 function resetSessionView() {
+  turns.reset();
   state.chat = [];
   state.requests = [];
   state.roster = null;
@@ -641,6 +647,11 @@ function onEvent(evt) {
       onHook(evt);
       break;
     case 'busy':
+      // The bridge reports idle only once a Stop hook let the turn end, so this is the real end.
+      if (state.busy && !evt.busy) {
+        const recap = turns.finish();
+        if (recap && (recap.ms >= 10_000 || recap.files.length || recap.failures)) systemRow(formatRecap(recap));
+      }
       state.busy = evt.busy;
       notify('busy');
       break;

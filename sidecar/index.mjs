@@ -70,14 +70,16 @@ const pool = new WorkerPool((evt) => emit(evt));
 // ---------- oturum listesi ----------
 // Sessions the office is not attached to still send hooks; remember which of them are
 // waiting for the user so the office can point at them.
-const waiting = new Map(); // sessionId -> 'permission' | 'question'
+const waiting = new Map(); // sessionId -> 'permission' | 'question' | 'done'
 
 function trackWaiting(sessionId, event, body) {
   const before = waiting.get(sessionId) ?? null;
   if (event === 'PermissionRequest') waiting.set(sessionId, 'permission');
   else if (event === 'PreToolUse' && body.tool_name === 'AskUserQuestion') waiting.set(sessionId, 'question');
   else if (event === 'Notification' && body.notification_type === 'permission_prompt') waiting.set(sessionId, before ?? 'permission');
-  else if (['PostToolUse', 'PostToolUseFailure', 'UserPromptSubmit', 'Stop', 'SessionEnd', 'SessionStart'].includes(event)) waiting.delete(sessionId);
+  // A finished turn waits for the user too, but quietly: the office marks it without blinking.
+  else if (event === 'Stop') waiting.set(sessionId, 'done');
+  else if (['PostToolUse', 'PostToolUseFailure', 'UserPromptSubmit', 'SessionEnd', 'SessionStart'].includes(event)) waiting.delete(sessionId);
   else if (event === 'PreToolUse') waiting.delete(sessionId);
   if ((waiting.get(sessionId) ?? null) !== before) pollSessions();
 }
@@ -352,9 +354,11 @@ function workerHook(worker, event, body, res) {
         return { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: NO_QUESTIONS } };
       }
       return holdRequest('question', body.session_id, body, res, agentId);
-    case 'PostToolUse': {
+    case 'PostToolUse':
+    case 'PostToolUseFailure': {
+      // A failed call is still a step: queued messages land there instead of waiting for the next success.
       const text = pool.takeQueued(body.session_id);
-      return text ? { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: text } } : {};
+      return text ? { hookSpecificOutput: { hookEventName: event, additionalContext: text } } : {};
     }
     case 'Stop': {
       const text = pool.takeQueued(body.session_id);
@@ -445,7 +449,7 @@ export async function handleHook(body, res) {
     attached.cwd = body.new_cwd;
     sendRoster();
   }
-  if (event === 'UserPromptSubmit' || event === 'PreToolUse' || event === 'PostToolUse') setBusy(true);
+  if (event === 'UserPromptSubmit' || event === 'PreToolUse' || event === 'PostToolUse' || event === 'PostToolUseFailure') setBusy(true);
   if (event === 'SubagentStart' && body.agent_id) startSubagentTail(sessionId, body.agent_id);
   if (event === 'SubagentStop' && body.agent_id) stopSubagentTail(body.agent_id);
 
@@ -461,11 +465,13 @@ export async function handleHook(body, res) {
       }
       if (options.answerInOffice) return holdRequest('question', sessionId, body, res);
       return {};
-    case 'PostToolUse': {
+    case 'PostToolUse':
+    case 'PostToolUseFailure': {
+      // After a failed call too: a run of failing commands must not hold the user's message back.
       const msgs = takeMessages(sessionId, body.agent_id ?? null);
       if (!msgs.length) return {};
       markDelivered(msgs, 'araç sonrası');
-      return { hookSpecificOutput: { hookEventName: 'PostToolUse', additionalContext: formatMessages(msgs) } };
+      return { hookSpecificOutput: { hookEventName: event, additionalContext: formatMessages(msgs) } };
     }
     case 'SubagentStop': {
       const msgs = takeMessages(sessionId, body.agent_id);
@@ -527,13 +533,18 @@ function detach(why) {
 }
 
 // ---------- HTTP sunucusu ----------
+const MAX_BODY = 5_000_000;
 function readBody(req) {
   return new Promise((resolve, reject) => {
     let data = '';
     req.setEncoding('utf8');
     req.on('data', (d) => {
       data += d;
-      if (data.length > 5_000_000) req.destroy();
+      // Destroying the request alone never ends the promise and leaves the handler hanging.
+      if (data.length > MAX_BODY) {
+        req.destroy();
+        reject(Object.assign(new Error('hook body too large'), { tooLarge: true }));
+      }
     });
     req.on('end', () => resolve(data));
     req.on('error', reject);
@@ -569,6 +580,7 @@ const server = http.createServer(async (req, res) => {
     }
     res.writeHead(404).end();
   } catch (err) {
+    if (err?.tooLarge) return;
     log('[köprü]', err.stack ?? err);
     if (!res.writableEnded) res.writeHead(200, { 'content-type': 'application/json' }).end('{}');
   }

@@ -6,6 +6,18 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+### Added
+
+- Turn recap: when a turn ends, the chat gets one quiet row with how long it took, how many tools ran, failures, subagents and the files Claude edited. Short turns that changed nothing stay silent.
+- Sessions the office is not attached to are marked "bitti · sıra sende" in the session list when their turn ends, so it is clear which terminal is waiting for you. Unlike permissions and questions this does not blink or send a notification.
+- A public web demo of the office, deployed to GitHub Pages: a scripted session plays on load, with links to replay it with the alarm, download the installer and read the source.
+
+### Fixed
+
+- An office message sent while Claude keeps hitting failing commands now lands after the next failed call instead of waiting for a successful one; office agents get the same.
+- The alarm pill no longer sits under the dock's move handle, where clicking "Kapat" could start dragging the office instead.
+- A hook body over 5 MB no longer leaves a request hanging in the bridge.
+
 ## [0.12.1] - 2026-10-19
 
 Fixes a library import that could stay on İndiriliyor… forever.

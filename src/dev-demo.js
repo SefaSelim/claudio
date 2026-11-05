@@ -229,6 +229,7 @@ export async function runDevDemo() {
     list: [
       { sessionId: SID, name: 'Demo · ofis prototipi', cwd: 'C:\\Users\\Selim\\Desktop\\Claudio', status: 'idle', updatedAt: Date.now(), waiting: null },
       { sessionId: 'demo-other', name: '', cwd: 'C:\\Users\\Selim\\code\\api', status: 'busy', updatedAt: Date.now(), waiting: 'permission' },
+      { sessionId: 'demo-web', name: 'Landing page', cwd: 'C:\\Users\\Selim\\code\\web', status: 'idle', updatedAt: Date.now() - 90_000, waiting: 'done' },
     ],
   });
 }

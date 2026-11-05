@@ -1,6 +1,6 @@
 /* Pencere düzeni (sağ alt köşeye yaslı, pencere 482×750):
    dock: right 8, bottom 8, 44×268
-   office: right 60, bottom 8, 414×268
+   office: right 8, bottom 8, 414×268 (the dock sits inside its right 52 px)
    stack (istek kartları + panel): right 8, bottom 286, 364 genişlik */
 :root {
   --ink: #2a211c;
@@ -331,7 +331,7 @@ code { font-family: var(--f-mono); font-size: 11.5px; }
 .meterbar.warm .mb i { background: var(--s-compact); }
 .meterbar.hot .mb i { background: var(--s-error); }
 .meterbar.hot .mt { color: var(--s-error); }
-.alarmpill { position: absolute; right: 8px; top: 8px; display: flex; align-items: center; gap: 6px; font: inherit; font-size: 10.5px; font-weight: 700; color: #fff; padding: 3px 4px 3px 9px; border-radius: 999px; border: 0; background: var(--s-error); cursor: pointer; box-shadow: 0 2px 10px rgba(194, 59, 48, .45); animation: pop .3s var(--spring); }
+.alarmpill { position: absolute; right: 60px; top: 8px; display: flex; align-items: center; gap: 6px; font: inherit; font-size: 10.5px; font-weight: 700; color: #fff; padding: 3px 4px 3px 9px; border-radius: 999px; border: 0; background: var(--s-error); cursor: pointer; box-shadow: 0 2px 10px rgba(194, 59, 48, .45); animation: pop .3s var(--spring); }
 .alarmpill i { width: 7px; height: 7px; border-radius: 50%; background: #fff; animation: ring 1.3s infinite; --s-wait: #fff; }
 .alarmpill b { font-size: 10px; padding: 1px 7px; border-radius: 999px; background: rgba(255, 255, 255, .22); }
 .alarmpill:hover b { background: rgba(255, 255, 255, .35); }
@@ -375,3 +375,14 @@ code { font-family: var(--f-mono); font-size: 11.5px; }
 .libimport { padding: 0; }
 .m .tl + * { margin-top: 0; }
 .m .tl.spk { text-transform: none; letter-spacing: 0; font-size: 10.5px; }
+
+/* Public web demo only (VITE_DEMO builds): a desktop backdrop and an explanatory note. */
+html.demo, html.demo body { background: radial-gradient(1200px 700px at 20% 15%, #4b5a78 0%, transparent 60%), linear-gradient(135deg, #2b3247 0%, #1c2030 55%, #3a2e3f 100%); }
+.demo-note { position: absolute; left: 24px; top: 24px; width: min(380px, calc(100vw - 32px)); padding: 16px 18px 14px; border-radius: 16px; background: rgba(255, 252, 247, .94); color: #2a2320; box-shadow: 0 10px 40px rgba(0, 0, 0, .35); user-select: text; z-index: 5; }
+.demo-note b { font-size: 15px; }
+.demo-note p { margin: 8px 0 0; line-height: 1.45; }
+.demo-links { display: flex; flex-wrap: wrap; gap: 6px 14px; }
+.demo-links a { color: #c4572a; font-weight: 700; text-decoration: none; }
+.demo-links a:hover { text-decoration: underline; }
+.demo-x { position: absolute; right: 8px; top: 6px; border: 0; background: none; font-size: 18px; line-height: 1; color: #8a7f78; cursor: pointer; }
+@media (max-width: 760px) { .demo-note { left: 16px; top: 16px; } }
