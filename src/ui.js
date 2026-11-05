@@ -160,12 +160,70 @@ export function createUI(scene) {
   }
 
   scene.onFrame(() => {
+    const shown = [];
     for (const [id, tag] of tags) {
       const p = scene.project(id);
       if (!p) { tag.el.hidden = true; continue; }
       tag.el.hidden = false;
-      tag.el.style.left = `${p.x}px`;
-      tag.el.style.top = `${p.y}px`;
+      shown.push({ tag, x: p.x, y: p.y });
+    }
+    // Characters at neighbouring desks would stack their name pills on top of each other.
+    // The one nearest the viewer (lowest on screen) keeps its place; the others move up
+    // just far enough to clear every pill already placed.
+    shown.sort((a, b) => b.y - a.y);
+    // The badge, the meter and the alarm pill sit over the room's top-left corner too.
+    const room = tagsEl.getBoundingClientRect();
+    const fixed = [badge, $('meter'), $('alarmPill')].filter((el) => el && !el.hidden).map((el) => {
+      const r = el.getBoundingClientRect();
+      return { left: r.left - room.left, right: r.right - room.left, top: r.top - room.top, bottom: r.bottom - room.top };
+    });
+    const hits = (box, r) => box.left < r.right + 2 && box.right > r.left - 2 && box.top < r.bottom + 2 && box.bottom > r.top - 2;
+    const placed = [];
+    for (const s of shown) {
+      const name = s.tag.el.querySelector('.name');
+      const w = name.offsetWidth;
+      const h = name.offsetHeight;
+      const at = (y) => ({ left: s.x - w / 2, right: s.x + w / 2, top: y - h, bottom: y });
+      let y = s.y;
+      // Move up past other pills; once the badge is in the way, move down past everything
+      // instead, so the pill never ends up underneath the badge.
+      let down = false;
+      for (let round = 0; round < 10; round++) {
+        const block = fixed.find((r) => hits(at(y), r));
+        if (block) { down = true; y = block.bottom + h + 3; continue; }
+        const tag = placed.find((b) => hits(at(y), b));
+        if (tag) { y = down ? tag.bottom + h + 2 : tag.top - 2; continue; }
+        break;
+      }
+      s.box = at(y);
+      placed.push(s.box);
+      s.top = y;
+      s.h = h;
+      s.tag.el.style.left = `${s.x}px`;
+      s.tag.el.style.top = `${y}px`;
+    }
+    // Speech bubbles go above the name, or below it, wherever they cover no other name, no
+    // other bubble and nothing in the corner, and stay inside the room. A bubble with no free
+    // spot waits out its few seconds hidden; the chat has the same words.
+    const bubbles = [];
+    for (const s of shown) {
+      const el = s.tag.el;
+      let place = null;
+      if (el.classList.contains('speak')) {
+        const bubble = el.querySelector('.bubble');
+        const bw = bubble.offsetWidth;
+        const bh = bubble.offsetHeight + 3;
+        const above = { left: s.x - bw / 2, right: s.x + bw / 2, top: s.top - s.h - bh, bottom: s.top - s.h };
+        const below = { left: above.left, right: above.right, top: s.top, bottom: s.top + bh };
+        const free = (box) => box.top >= 2 && box.bottom <= room.height - 2 && box.left >= 2 && box.right <= room.width - 2
+          && !fixed.some((r) => hits(box, r)) && !bubbles.some((b) => hits(box, b))
+          && !placed.some((b) => b !== s.box && hits(box, b));
+        place = free(above) ? 'above' : free(below) ? 'below' : null;
+        if (place) bubbles.push(place === 'above' ? above : below);
+      }
+      el.classList.toggle('below', place === 'below');
+      el.classList.toggle('hush', el.classList.contains('speak') && !place);
+      el.style.transform = place === 'below' ? `translate(-50%, -${s.h}px)` : '';
     }
   });
   scene.onPick((id) => {
@@ -604,7 +662,8 @@ export function createUI(scene) {
       btn.addEventListener('click', () => {
         const act = btn.dataset.meet;
         if (act === 'end') session.endMeeting();
-        if (act === 'close') session.closeMeeting();
+        // Closing the summary closes the panel too, instead of opening a blank meeting setup.
+        if (act === 'close') { session.closeMeeting(); closePanel(); }
         if (act === 'copy') {
           const m = session.state.meeting;
           navigator.clipboard?.writeText(`${m?.topic}\n\n${m?.summary}`);
@@ -846,7 +905,8 @@ export function createUI(scene) {
     });
     const search = $('libSearch');
     if (search) search.addEventListener('input', () => { libQuery = search.value; rerenderTeam(); });
-    for (const row of root.querySelectorAll('.ros')) {
+    // Skill and command rows only; library rows share the .ros look but have no task box.
+    for (const row of root.querySelectorAll('.ros[data-kind]')) {
       row.querySelector('[data-pick]').addEventListener('click', () => {
         if (!session.state.attached) return;
         const same = teamPick?.kind === row.dataset.kind && teamPick.name === row.dataset.name;
@@ -1038,12 +1098,12 @@ export function createUI(scene) {
   }
 
   // ---------- permission and question cards ----------
-  function renderRequests() {
+  function renderRequests(limit = panel ? 1 : 2) {
     const reqs = session.state.requests;
     // The open agent panel's request comes first; with a panel open only one card shows.
     const focus = panel?.type === 'agent' ? panel.id : null;
     const sorted = [...reqs].sort((a, b) => (b.agentId === focus) - (a.agentId === focus));
-    const visible = sorted.slice(0, panel ? 1 : 2);
+    const visible = sorted.slice(0, limit);
     const existing = new Map([...requestsEl.querySelectorAll('.qc')].map((el) => [el.dataset.id, el]));
     requestsEl.innerHTML = '';
     if (reqs.length > visible.length) {
@@ -1064,6 +1124,12 @@ export function createUI(scene) {
       }
       requestsEl.appendChild(el);
     });
+    // Two tall cards (a long question and a permission) do not fit above the office in the
+    // 750 px window; the one behind would be cut off at the top. Show the front one alone.
+    if (visible.length > 1) {
+      const room = parseFloat(getComputedStyle($('stack')).maxHeight) || Infinity;
+      if (requestsEl.offsetHeight > room) renderRequests(1);
+    }
   }
 
   const agentLabel = (id) => session.state.agents.get(id)?.label ?? 'Claude';

@@ -234,6 +234,10 @@ npx vite build
   session.
 - **README media:** `scripts/capture-media.cjs` regenerates every screenshot and GIF from the
   demo build with Playwright and ffmpeg.
+- **UI checks:** `scripts/ui-audit.cjs` walks the demo through every panel, card and state at
+  the app's 482×750 size, on a laptop screen and on a phone, and reports overlapping or cut-off
+  text, anything off screen and clicks that cannot land; `scripts/ui-smoke.cjs` checks the
+  keyboard shortcuts, office commands and settings. Both need Playwright with Chromium.
 - **CI** runs the bridge tests, the frontend build and the Rust tests. A `vX.Y.Z` tag builds
   the Windows installers into a draft release.
 
