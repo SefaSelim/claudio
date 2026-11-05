@@ -60,7 +60,9 @@ async function demoWorkers(c) {
   if (c.cmd === 'worker_add') {
     if (demoWorkerList.length >= 5) return winj({ type: 'error', message: 'At most 5 agents can work in the office.' });
     const name = c.key.split('/').pop();
-    const w = { id: `d${++wSeq}`, name, title: name, defKey: c.key, description: '', state: 'idle', text: 'Arrived at the office', queued: 0 };
+    // Like the bridge: a second copy of the same agent is numbered.
+    const same = demoWorkerList.filter((x) => x.name === name).length;
+    const w = { id: `d${++wSeq}`, name, title: same ? `${name} ${same + 1}` : name, defKey: c.key, description: '', state: 'idle', text: 'Arrived at the office', queued: 0 };
     demoWorkerList.push(w);
     return winj({ type: 'worker_added', worker: w });
   }
