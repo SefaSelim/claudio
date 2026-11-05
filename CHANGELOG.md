@@ -6,6 +6,10 @@ The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and
 
 ## [Unreleased]
 
+## [0.13.0] - 2026-11-05
+
+A live web demo, turn recaps, finished-session marks and an English README.
+
 ### Added
 
 - Turn recap: when a turn ends, the chat gets one quiet row with how long it took, how many tools ran, failures, subagents and the files Claude edited. Short turns that changed nothing stay silent.
@@ -215,7 +219,8 @@ First working prototype, covering roadmap phases 0 and 1. Commits before this re
 
 - The window position is no longer saved while the window is minimized.
 
-[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.12.1...HEAD
+[Unreleased]: https://github.com/SefaSelim/claudio/compare/v0.13.0...HEAD
+[0.13.0]: https://github.com/SefaSelim/claudio/compare/v0.12.1...v0.13.0
 [0.12.1]: https://github.com/SefaSelim/claudio/compare/v0.12.0...v0.12.1
 [0.12.0]: https://github.com/SefaSelim/claudio/compare/v0.11.1...v0.12.0
 [0.11.1]: https://github.com/SefaSelim/claudio/compare/v0.11.0...v0.11.1

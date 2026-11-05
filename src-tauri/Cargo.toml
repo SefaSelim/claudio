@@ -1,6 +1,6 @@
 [package]
 name = "claudio-ofis"
-version = "0.12.1"
+version = "0.13.0"
 description = "Claude Code ajanlarını masaüstünde küçük bir ofiste gösterir"
 edition = "2021"
 
